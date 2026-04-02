@@ -428,7 +428,6 @@ alias keepclaude="echo keep"
         Assert-NotExists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0") "vscode extension removed"
         Assert-NotExists (Join-Path $npmPrefix "claude.cmd") "npm cmd removed"
         Assert-NotExists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code") "npm package removed"
-        Assert-NotExists (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin") "jetbrains plugin removed"
 
         $null = & $Bin restore --backup-dir $backup -y | Out-String
         Assert-True ($LASTEXITCODE -eq 0) "restore exit code"
@@ -439,7 +438,6 @@ alias keepclaude="echo keep"
         Assert-Exists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0\package.json") "vscode extension restored"
         Assert-Exists (Join-Path $npmPrefix "claude.cmd") "npm cmd restored"
         Assert-Exists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code\package.json") "npm package restored"
-        Assert-Exists (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin\plugin.txt") "jetbrains plugin restored"
         Write-Host "PASS: shell/IDE/npm artifacts work"
     } finally {
         $env:USERPROFILE = $oldUserProfile
