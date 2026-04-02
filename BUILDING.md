@@ -108,6 +108,7 @@ ctest -L dangerous -V
 - `cfg_strict_restore`
 - `cfg_allow_unsafe_purge`
 - `cfg_extended_runtime_install_artifacts`
+- `cfg_shell_ide_npm_artifacts`
 - Windows 额外：`cfg_windows_registry_credential`
 
 ## 当前 label

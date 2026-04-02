@@ -277,6 +277,103 @@ test_extended_runtime_install_artifacts() {
   pass "扩展安装/运行残留回归通过"
 }
 
+test_shell_ide_npm_and_mime_cleanup() {
+  local home backup config json_out clean_out restore_out npm_prefix zshrc bashrc fishrc
+  home="$(mktemp -d /tmp/ccfgtest.shell-ide.XXXXXX)"
+  backup="$(mktemp -d /tmp/ccbackup.shell-ide.XXXXXX)"
+  config="$home/.claude"
+  npm_prefix="$home/npm-global"
+  zshrc="$home/.zshrc"
+  bashrc="$home/.bashrc"
+  fishrc="$home/.config/fish/config.fish"
+
+  mkdir -p "$config/local" "$(dirname "$fishrc")"
+  printf 'wrapper' >"$config/local/claude"
+  cat >"$zshrc" <<EOF
+export PATH="$home/bin:\$PATH"
+# Claude Code shell completions
+[[ -f "$config/completion.zsh" ]] && source "$config/completion.zsh"
+alias claude="$config/local/claude"
+alias keepclaude="echo keep"
+EOF
+  cat >"$bashrc" <<EOF
+# Claude Code shell completions
+[ -f "$config/completion.bash" ] && source "$config/completion.bash"
+EOF
+  cat >"$fishrc" <<EOF
+# Claude Code shell completions
+[ -f "$config/completion.fish" ] && source "$config/completion.fish"
+EOF
+
+  mkdir -p "$home/.vscode/extensions/anthropic.claude-code-1.0.0"
+  printf '{}' >"$home/.vscode/extensions/anthropic.claude-code-1.0.0/package.json"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    mkdir -p "$home/Library/Application Support/JetBrains/PyCharm2024.1/plugins/claude-code-jetbrains-plugin"
+    printf 'plugin' >"$home/Library/Application Support/JetBrains/PyCharm2024.1/plugins/claude-code-jetbrains-plugin/plugin.txt"
+  else
+    mkdir -p "$home/.config/JetBrains/PyCharm2024.1/claude-code-jetbrains-plugin"
+    printf 'plugin' >"$home/.config/JetBrains/PyCharm2024.1/claude-code-jetbrains-plugin/plugin.txt"
+    mkdir -p "$home/.config" "$home/.local/share/applications"
+    cat >"$home/.config/mimeapps.list" <<EOF
+[Default Applications]
+x-scheme-handler/claude-cli=claude-code-url-handler.desktop;other.desktop;
+EOF
+    cat >"$home/.local/share/applications/mimeapps.list" <<EOF
+[Added Associations]
+x-scheme-handler/claude-cli=claude-code-url-handler.desktop;
+EOF
+  fi
+
+  mkdir -p "$npm_prefix/bin" "$npm_prefix/lib/node_modules/@anthropic-ai/claude-code"
+  printf 'exec' >"$npm_prefix/bin/claude"
+  printf '{}' >"$npm_prefix/lib/node_modules/@anthropic-ai/claude-code/package.json"
+
+  json_out="$(HOME="$home" XDG_CONFIG_HOME="$home/.config" NPM_CONFIG_PREFIX="$npm_prefix" "$BIN" check --json)"
+  assert_json_python "$json_out" "any(x['kind'] == 'shell_config' and x['identifier'].endswith('/.zshrc') and x['exists'] is True for x in data['runtime'])" "shell zsh detected"
+  assert_json_python "$json_out" "any(x['identifier'].endswith('/anthropic.claude-code-1.0.0') and x['exists'] is True for x in data['runtime'])" "vscode extension detected"
+  assert_json_python "$json_out" "any(x['identifier'].endswith('/@anthropic-ai/claude-code') and x['exists'] is True for x in data['runtime'])" "npm package detected"
+  assert_json_python "$json_out" "any('claude-code-jetbrains-plugin' in x['identifier'] and x['exists'] is True for x in data['runtime'])" "jetbrains plugin detected"
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    assert_json_python "$json_out" "any(x['kind'] == 'mimeapps_config' and x['exists'] is True for x in data['runtime'])" "mimeapps detected"
+  fi
+
+  clean_out="$(HOME="$home" XDG_CONFIG_HOME="$home/.config" NPM_CONFIG_PREFIX="$npm_prefix" "$BIN" clean --backup-dir "$backup" -y)"
+  assert_contains "$clean_out" ".zshrc" "shell clean output"
+  assert_contains "$(cat "$zshrc")" 'alias keepclaude="echo keep"' "custom alias preserved"
+  if grep -q 'Claude Code shell completions' "$zshrc"; then fail 'zshrc completion marker should be removed'; fi
+  if grep -q 'alias claude=' "$zshrc"; then fail 'zshrc default alias should be removed'; fi
+  if grep -q 'completion.bash' "$bashrc"; then fail 'bashrc completion line should be removed'; fi
+  if grep -q 'completion.fish' "$fishrc"; then fail 'fishrc completion line should be removed'; fi
+  assert_file_not_exists "$home/.vscode/extensions/anthropic.claude-code-1.0.0" "vscode extension removed"
+  assert_file_not_exists "$npm_prefix/bin/claude" "npm bin removed"
+  assert_file_not_exists "$npm_prefix/lib/node_modules/@anthropic-ai/claude-code" "npm package removed"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    assert_file_not_exists "$home/Library/Application Support/JetBrains/PyCharm2024.1/plugins/claude-code-jetbrains-plugin" "jetbrains plugin removed"
+  else
+    assert_contains "$(cat "$home/.config/mimeapps.list")" 'other.desktop' "mimeapps other preserved"
+    if grep -q 'claude-code-url-handler.desktop' "$home/.config/mimeapps.list"; then fail 'mimeapps claude handler should be removed'; fi
+    assert_file_not_exists "$home/.config/JetBrains/PyCharm2024.1/claude-code-jetbrains-plugin" "jetbrains plugin removed"
+  fi
+
+  restore_out="$(HOME="$home" XDG_CONFIG_HOME="$home/.config" NPM_CONFIG_PREFIX="$npm_prefix" "$BIN" restore --backup-dir "$backup" -y)"
+  assert_contains "$restore_out" "restored" "restore output"
+  assert_contains "$(cat "$zshrc")" 'Claude Code shell completions' "zshrc restored"
+  assert_contains "$(cat "$zshrc")" "alias claude=\"$config/local/claude\"" "zsh alias restored"
+  assert_file_exists "$home/.vscode/extensions/anthropic.claude-code-1.0.0/package.json" "vscode extension restored"
+  assert_file_exists "$npm_prefix/bin/claude" "npm bin restored"
+  assert_file_exists "$npm_prefix/lib/node_modules/@anthropic-ai/claude-code/package.json" "npm package restored"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    assert_file_exists "$home/Library/Application Support/JetBrains/PyCharm2024.1/plugins/claude-code-jetbrains-plugin/plugin.txt" "jetbrains plugin restored"
+  else
+    assert_contains "$(cat "$home/.config/mimeapps.list")" 'claude-code-url-handler.desktop' "mimeapps restored"
+    assert_file_exists "$home/.config/JetBrains/PyCharm2024.1/claude-code-jetbrains-plugin/plugin.txt" "jetbrains plugin restored"
+  fi
+
+  rm -rf "$home" "$backup"
+  pass "shell/IDE/npm/mimeapps 回归通过"
+}
+
 main() {
   build_if_needed
   if [[ $# -gt 0 ]]; then
@@ -296,6 +393,7 @@ main() {
   test_strict_restore_removes_extras
   test_allow_unsafe_purge_on_temp_dir
   test_extended_runtime_install_artifacts
+  test_shell_ide_npm_and_mime_cleanup
   printf '全部回归测试通过。\n'
 }
 

@@ -311,6 +311,92 @@ function Test-ExtendedRuntimeInstallArtifacts {
     }
 }
 
+function Test-ShellIdeAndNpmArtifacts {
+    $homeDir = New-TestDir "ccfgtest-shellide"
+    $backup = New-TestDir "ccbackup-shellide"
+    $configDir = Join-Path $homeDir ".claude"
+    $npmPrefix = Join-Path $homeDir "npm-global"
+    $oldUserProfile = $env:USERPROFILE
+    $oldAppData = $env:APPDATA
+    $oldLocalAppData = $env:LOCALAPPDATA
+    $oldXdgConfig = $env:XDG_CONFIG_HOME
+    $oldNpmPrefix = $env:NPM_CONFIG_PREFIX
+    try {
+        $env:USERPROFILE = $homeDir
+        $env:APPDATA = Join-Path $homeDir "AppData\Roaming"
+        $env:LOCALAPPDATA = Join-Path $homeDir "AppData\Local"
+        $env:XDG_CONFIG_HOME = Join-Path $homeDir ".config"
+        $env:NPM_CONFIG_PREFIX = $npmPrefix
+
+        New-Item -ItemType Directory -Path (Join-Path $configDir "local") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $configDir "local\claude") -Value "wrapper" -NoNewline
+        New-Item -ItemType Directory -Path (Join-Path $homeDir ".config\fish") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Value @"
+# Claude Code shell completions
+[[ -f "$configDir/completion.zsh" ]] && source "$configDir/completion.zsh"
+alias claude="$configDir/local/claude"
+alias keepclaude="echo keep"
+"@ -NoNewline
+        Set-Content -LiteralPath (Join-Path $homeDir ".bashrc") -Value @"
+# Claude Code shell completions
+[ -f "$configDir/completion.bash" ] && source "$configDir/completion.bash"
+"@ -NoNewline
+        Set-Content -LiteralPath (Join-Path $homeDir ".config\fish\config.fish") -Value @"
+# Claude Code shell completions
+[ -f "$configDir/completion.fish" ] && source "$configDir/completion.fish"
+"@ -NoNewline
+
+        New-Item -ItemType Directory -Path (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0\package.json") -Value "{}" -NoNewline
+        New-Item -ItemType Directory -Path (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin\plugin.txt") -Value "plugin" -NoNewline
+
+        New-Item -ItemType Directory -Path (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $npmPrefix "claude.cmd") -Value "cmd" -NoNewline
+        Set-Content -LiteralPath (Join-Path $npmPrefix "claude.ps1") -Value "ps1" -NoNewline
+        Set-Content -LiteralPath (Join-Path $npmPrefix "claude") -Value "exe" -NoNewline
+        Set-Content -LiteralPath (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code\package.json") -Value "{}" -NoNewline
+
+        $jsonOut = & $Bin check --json | Out-String
+        $obj = $jsonOut | ConvertFrom-Json
+        Assert-True (($obj.runtime | Where-Object { $_.kind -eq "shell_config" -and $_.identifier -like "*.zshrc" -and $_.exists -eq $true }).Count -ge 1) "shell zsh detected"
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*anthropic.claude-code-1.0.0" -and $_.exists -eq $true }).Count -ge 1) "vscode extension detected"
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*claude.cmd" -and $_.exists -eq $true }).Count -ge 1) "npm cmd detected"
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*claude-code-jetbrains-plugin" -and $_.exists -eq $true }).Count -ge 1) "jetbrains plugin detected"
+
+        $cleanOut = & $Bin clean --backup-dir $backup -y | Out-String
+        Assert-Contains $cleanOut ".zshrc" "shell clean output"
+        $zshContent = Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw
+        Assert-Contains $zshContent 'alias keepclaude="echo keep"' "custom alias preserved"
+        if ($zshContent.Contains('alias claude=')) { throw "default alias should be removed from zshrc" }
+        if ((Get-Content -LiteralPath (Join-Path $homeDir ".bashrc") -Raw).Contains('completion.bash')) { throw "bash completion should be removed" }
+        if ((Get-Content -LiteralPath (Join-Path $homeDir ".config\fish\config.fish") -Raw).Contains('completion.fish')) { throw "fish completion should be removed" }
+        Assert-NotExists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0") "vscode extension removed"
+        Assert-NotExists (Join-Path $npmPrefix "claude.cmd") "npm cmd removed"
+        Assert-NotExists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code") "npm package removed"
+        Assert-NotExists (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin") "jetbrains plugin removed"
+
+        $restoreOut = & $Bin restore --backup-dir $backup -y | Out-String
+        Assert-Contains $restoreOut "restored" "restore output"
+        $restoredZsh = Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw
+        Assert-Contains $restoredZsh "Claude Code shell completions" "zsh restored"
+        Assert-Contains $restoredZsh ('alias claude="' + $configDir + '/local/claude"') "alias restored"
+        Assert-Exists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0\package.json") "vscode extension restored"
+        Assert-Exists (Join-Path $npmPrefix "claude.cmd") "npm cmd restored"
+        Assert-Exists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code\package.json") "npm package restored"
+        Assert-Exists (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin\plugin.txt") "jetbrains plugin restored"
+        Write-Host "PASS: shell/IDE/npm artifacts work"
+    } finally {
+        $env:USERPROFILE = $oldUserProfile
+        $env:APPDATA = $oldAppData
+        $env:LOCALAPPDATA = $oldLocalAppData
+        $env:XDG_CONFIG_HOME = $oldXdgConfig
+        $env:NPM_CONFIG_PREFIX = $oldNpmPrefix
+        Remove-Item -LiteralPath $homeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Test-WindowsRegistryAndCredentialRoundTrip {
     $regBase = "HKCU:\Software\Classes\claude-cli"
     $backup = New-TestDir "ccbackup-winstate"
@@ -399,5 +485,6 @@ Test-JsonOutputAndIncludeRelated
 Test-StrictRestoreRemovesExtras
 Test-AllowUnsafePurgeOnTempDir
 Test-ExtendedRuntimeInstallArtifacts
+Test-ShellIdeAndNpmArtifacts
 Test-WindowsRegistryAndCredentialRoundTrip
 Write-Host "All regression tests passed."

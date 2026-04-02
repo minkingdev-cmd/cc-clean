@@ -852,6 +852,19 @@ static Artifact path_artifact(const char *path,
   return a;
 }
 
+static Artifact path_artifact_as_kind(const char *kind,
+                                      const char *path,
+                                      bool exists,
+                                      const char *home,
+                                      const char *confidence,
+                                      bool safe_clean,
+                                      const char *note) {
+  char *display = tilde_path(path, home);
+  Artifact a = make_artifact(kind, display, exists, confidence, safe_clean, note);
+  free(display);
+  return a;
+}
+
 static char *absolute_to_backup_rel(const char *abs_path) {
   char *norm = xstrdup(abs_path);
   normalize_separators(norm);
@@ -1326,6 +1339,801 @@ static bool is_known_browser_integration_path(const char *path,
   }
   return false;
 #endif
+}
+
+static int read_text_file(const char *path, char **out) {
+  FILE *fp = fopen(path, "rb");
+  if (!fp) return 1;
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    return 1;
+  }
+  long size = ftell(fp);
+  if (size < 0) {
+    fclose(fp);
+    return 1;
+  }
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    return 1;
+  }
+  char *buf = (char *)malloc((size_t)size + 1);
+  if (!buf) {
+    fclose(fp);
+    fprintf(stderr, "内存分配失败\n");
+    exit(2);
+  }
+  size_t n = fread(buf, 1, (size_t)size, fp);
+  fclose(fp);
+  if (n != (size_t)size) {
+    free(buf);
+    return 1;
+  }
+  buf[n] = '\0';
+  *out = buf;
+  return 0;
+}
+
+static int write_text_file(const char *path, const char *content) {
+  char *dir = path_dirname(path);
+  if (ensure_dir_recursive(dir) != 0) {
+    free(dir);
+    return 1;
+  }
+  free(dir);
+  FILE *fp = fopen(path, "wb");
+  if (!fp) return 1;
+  size_t len = strlen(content);
+  size_t n = fwrite(content, 1, len, fp);
+  fclose(fp);
+  return n == len ? 0 : 1;
+}
+
+static void append_buffer(char **buf,
+                          size_t *len,
+                          size_t *cap,
+                          const char *text) {
+  size_t add = strlen(text);
+  if (*len + add + 1 > *cap) {
+    size_t next = *cap == 0 ? 1024 : *cap;
+    while (*len + add + 1 > next) next *= 2;
+    char *p = (char *)realloc(*buf, next);
+    if (!p) {
+      fprintf(stderr, "内存分配失败\n");
+      exit(2);
+    }
+    *buf = p;
+    *cap = next;
+  }
+  memcpy(*buf + *len, text, add);
+  *len += add;
+  (*buf)[*len] = '\0';
+}
+
+static void append_line_buffer(char **buf,
+                               size_t *len,
+                               size_t *cap,
+                               const char *line,
+                               bool *first_line) {
+  if (!*first_line) {
+    append_buffer(buf, len, cap, "\n");
+  }
+  append_buffer(buf, len, cap, line);
+  *first_line = false;
+}
+
+static char *trim_copy(const char *s) {
+  const char *start = s;
+  while (*start && isspace((unsigned char)*start)) start++;
+  const char *end = s + strlen(s);
+  while (end > start && isspace((unsigned char)end[-1])) end--;
+  size_t len = (size_t)(end - start);
+  char *out = (char *)malloc(len + 1);
+  if (!out) {
+    fprintf(stderr, "内存分配失败\n");
+    exit(2);
+  }
+  memcpy(out, start, len);
+  out[len] = '\0';
+  return out;
+}
+
+static void trim_trailing_newlines_simple(char *s) {
+  size_t n = strlen(s);
+  while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r')) {
+    s[--n] = '\0';
+  }
+}
+
+static void artifact_list_push_unique(ArtifactList *list, Artifact a) {
+  for (size_t i = 0; i < list->len; ++i) {
+    if (strcmp(list->items[i].kind, a.kind) == 0 &&
+        strcmp(list->items[i].identifier, a.identifier) == 0) {
+      free(a.kind);
+      free(a.identifier);
+      free(a.confidence);
+      free(a.note);
+      free(a.detail);
+      return;
+    }
+  }
+  artifact_list_push(list, a);
+}
+
+static bool component_starts_with_any(const char *path,
+                                      const char *const *prefixes) {
+  const char *p = path;
+  while (*p) {
+    while (*p && is_sep_char(*p)) p++;
+    if (!*p) break;
+    const char *start = p;
+    while (*p && !is_sep_char(*p)) p++;
+    size_t len = (size_t)(p - start);
+    for (size_t i = 0; prefixes[i] != NULL; ++i) {
+      size_t plen = strlen(prefixes[i]);
+      if (len >= plen && path_cmp_platform(start, prefixes[i], plen) == 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static void add_matching_children_artifacts(ArtifactList *runtime,
+                                            const char *base_dir,
+                                            const char *home,
+                                            const char *const *prefixes,
+                                            const char *note) {
+  if (!path_exists(base_dir)) return;
+#ifdef _WIN32
+  char pattern[PATH_MAX_LEN];
+  snprintf(pattern, sizeof(pattern), "%s\\*", base_dir);
+  WIN32_FIND_DATAA fd;
+  HANDLE h = FindFirstFileA(pattern, &fd);
+  if (h == INVALID_HANDLE_VALUE) return;
+  do {
+    if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+    bool match = false;
+    for (size_t i = 0; prefixes[i] != NULL; ++i) {
+      if (path_cmp_platform(fd.cFileName, prefixes[i], strlen(prefixes[i])) == 0) {
+        match = true;
+        break;
+      }
+    }
+    if (!match) continue;
+    char *full = path_join(base_dir, fd.cFileName);
+    if (path_exists(full)) {
+      artifact_list_push_unique(runtime, path_artifact(full, home, "high", true, note));
+    }
+    free(full);
+  } while (FindNextFileA(h, &fd));
+  FindClose(h);
+#else
+  DIR *dir = opendir(base_dir);
+  if (!dir) return;
+  struct dirent *ent;
+  while ((ent = readdir(dir)) != NULL) {
+    if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+    bool match = false;
+    for (size_t i = 0; prefixes[i] != NULL; ++i) {
+      if (strncmp(ent->d_name, prefixes[i], strlen(prefixes[i])) == 0) {
+        match = true;
+        break;
+      }
+    }
+    if (!match) continue;
+    char *full = path_join(base_dir, ent->d_name);
+    if (path_exists(full) || path_is_symlink(full)) {
+      artifact_list_push_unique(runtime, path_artifact(full, home, "high", true, note));
+    }
+    free(full);
+  }
+  closedir(dir);
+#endif
+}
+
+static char *get_shell_completion_cache_path(const char *config_home,
+                                             const char *shell_name) {
+  if (strcmp(shell_name, "zsh") == 0) return path_join(config_home, "completion.zsh");
+  if (strcmp(shell_name, "bash") == 0) return path_join(config_home, "completion.bash");
+  return path_join(config_home, "completion.fish");
+}
+
+static void get_shell_config_paths(const char *home,
+                                   char **zsh_out,
+                                   char **bash_out,
+                                   char **fish_out) {
+  const char *zdotdir = get_env_dup("ZDOTDIR");
+  const char *xdg_config = get_env_dup("XDG_CONFIG_HOME");
+  char *zsh_base = zdotdir ? xstrdup(zdotdir) : xstrdup(home);
+  char *fish_base = xdg_config ? xstrdup(xdg_config) : path_join(home, ".config");
+  *zsh_out = path_join(zsh_base, ".zshrc");
+  *bash_out = path_join(home, ".bashrc");
+  char *fish_dir = path_join(fish_base, "fish");
+  *fish_out = path_join(fish_dir, "config.fish");
+  free(zsh_base);
+  free(fish_base);
+  free(fish_dir);
+}
+
+static bool line_is_claude_completion_comment(const char *line) {
+  return strstr(line, "Claude Code shell completions") != NULL;
+}
+
+static bool line_is_completion_source(const char *line,
+                                      const char *cache_path) {
+  if (strstr(line, "claude completion") != NULL) return true;
+  char *norm_line = xstrdup(line);
+  char *norm_cache = xstrdup(cache_path);
+  normalize_separators(norm_line);
+  normalize_separators(norm_cache);
+  bool found = strstr(norm_line, norm_cache) != NULL;
+  free(norm_line);
+  free(norm_cache);
+  return found;
+}
+
+static bool line_is_default_claude_alias(const char *line,
+                                         const char *local_claude_path) {
+  const char *p = line;
+  while (*p && isspace((unsigned char)*p)) p++;
+  if (!starts_with(p, "alias")) return false;
+  p += 5;
+  while (*p && isspace((unsigned char)*p)) p++;
+  if (!starts_with(p, "claude")) return false;
+  p += 6;
+  while (*p && isspace((unsigned char)*p)) p++;
+  if (*p != '=') return false;
+  p++;
+  while (*p && isspace((unsigned char)*p)) p++;
+  char quote = 0;
+  if (*p == '\'' || *p == '"') {
+    quote = *p;
+    p++;
+  }
+  const char *start = p;
+  while (*p) {
+    if (quote) {
+      if (*p == quote) break;
+    } else if (*p == '#' || *p == '\n' || *p == '\r') {
+      break;
+    }
+    p++;
+  }
+  size_t len = (size_t)(p - start);
+  char *target = (char *)malloc(len + 1);
+  if (!target) {
+    fprintf(stderr, "内存分配失败\n");
+    exit(2);
+  }
+  memcpy(target, start, len);
+  target[len] = '\0';
+  char *trimmed = trim_copy(target);
+  free(target);
+  char *norm_trimmed = xstrdup(trimmed);
+  char *norm_local = xstrdup(local_claude_path);
+  normalize_separators(norm_trimmed);
+  normalize_separators(norm_local);
+  bool ok = path_equals_platform(norm_trimmed, norm_local);
+  free(norm_trimmed);
+  free(norm_local);
+  free(trimmed);
+  return ok;
+}
+
+static bool shell_config_has_claude_setup(const char *path,
+                                          const char *cache_path,
+                                          const char *local_claude_path) {
+  char *content = NULL;
+  if (read_text_file(path, &content) != 0) return false;
+  bool found = false;
+  char *copy = xstrdup(content);
+  char *save = NULL;
+  for (char *line = strtok_r(copy, "\n", &save); line != NULL;
+       line = strtok_r(NULL, "\n", &save)) {
+    size_t len = strlen(line);
+    if (len > 0 && line[len - 1] == '\r') line[len - 1] = '\0';
+    if (line_is_claude_completion_comment(line) ||
+        line_is_completion_source(line, cache_path) ||
+        line_is_default_claude_alias(line, local_claude_path)) {
+      found = true;
+      break;
+    }
+  }
+  free(copy);
+  free(content);
+  return found;
+}
+
+static int cleanup_shell_config_file(const char *path,
+                                     const char *cache_path,
+                                     const char *local_claude_path) {
+  char *content = NULL;
+  if (read_text_file(path, &content) != 0) return 1;
+  char *copy = xstrdup(content);
+  char *out = NULL;
+  size_t out_len = 0, out_cap = 0;
+  bool first = true;
+  char *save = NULL;
+  for (char *line = strtok_r(copy, "\n", &save); line != NULL;
+       line = strtok_r(NULL, "\n", &save)) {
+    size_t len = strlen(line);
+    if (len > 0 && line[len - 1] == '\r') line[len - 1] = '\0';
+    if (line_is_claude_completion_comment(line) ||
+        line_is_completion_source(line, cache_path) ||
+        line_is_default_claude_alias(line, local_claude_path)) {
+      continue;
+    }
+    append_line_buffer(&out, &out_len, &out_cap, line, &first);
+  }
+  if (!out) out = xstrdup("");
+  int rc = write_text_file(path, out);
+  free(out);
+  free(copy);
+  free(content);
+  return rc;
+}
+
+static void add_shell_config_artifacts(ArtifactList *runtime,
+                                       const char *config_home,
+                                       const char *home) {
+  char *zshrc = NULL;
+  char *bashrc = NULL;
+  char *fishrc = NULL;
+  get_shell_config_paths(home, &zshrc, &bashrc, &fishrc);
+  const char *names[] = {"zsh", "bash", "fish"};
+  char *paths[] = {zshrc, bashrc, fishrc};
+  for (size_t i = 0; i < 3; ++i) {
+    char *cache_path = get_shell_completion_cache_path(config_home, names[i]);
+    char *local_claude_path = path_join(config_home, "local/claude");
+    bool exists =
+        path_exists(paths[i]) &&
+        shell_config_has_claude_setup(paths[i], cache_path, local_claude_path);
+    artifact_list_push(runtime,
+                       path_artifact_as_kind(
+                           "shell_config", paths[i], exists, home, "high", true,
+                           "shell 配置中的 Claude Code completion / alias 注入"));
+    free(cache_path);
+    free(local_claude_path);
+  }
+  free(zshrc);
+  free(bashrc);
+  free(fishrc);
+}
+
+#ifndef _WIN32
+#ifndef __APPLE__
+static bool mimeapps_line_mentions_claude(const char *line) {
+  return strstr(line, "x-scheme-handler/claude-cli") != NULL ||
+         strstr(line, "claude-code-url-handler.desktop") != NULL;
+}
+
+static bool mimeapps_file_has_claude_handler(const char *path) {
+  char *content = NULL;
+  if (read_text_file(path, &content) != 0) return false;
+  bool found = false;
+  char *copy = xstrdup(content);
+  char *save = NULL;
+  for (char *line = strtok_r(copy, "\n", &save); line != NULL;
+       line = strtok_r(NULL, "\n", &save)) {
+    size_t len = strlen(line);
+    if (len > 0 && line[len - 1] == '\r') line[len - 1] = '\0';
+    if (mimeapps_line_mentions_claude(line)) {
+      found = true;
+      break;
+    }
+  }
+  free(copy);
+  free(content);
+  return found;
+}
+
+static int cleanup_mimeapps_file(const char *path) {
+  char *content = NULL;
+  if (read_text_file(path, &content) != 0) return 1;
+  char *copy = xstrdup(content);
+  char *out = NULL;
+  size_t out_len = 0, out_cap = 0;
+  bool first = true;
+  char *save = NULL;
+  for (char *line = strtok_r(copy, "\n", &save); line != NULL;
+       line = strtok_r(NULL, "\n", &save)) {
+    size_t len = strlen(line);
+    if (len > 0 && line[len - 1] == '\r') line[len - 1] = '\0';
+    if (!starts_with(line, "x-scheme-handler/claude-cli=")) {
+      append_line_buffer(&out, &out_len, &out_cap, line, &first);
+      continue;
+    }
+    const char *rhs = strchr(line, '=');
+    if (!rhs) continue;
+    rhs++;
+    char *work = xstrdup(rhs);
+    char *save2 = NULL;
+    char *rebuilt = NULL;
+    size_t rebuilt_len = 0, rebuilt_cap = 0;
+    bool kept_any = false;
+    for (char *item = strtok_r(work, ";", &save2); item != NULL;
+         item = strtok_r(NULL, ";", &save2)) {
+      char *trimmed = trim_copy(item);
+      if (*trimmed &&
+          strcmp(trimmed, "claude-code-url-handler.desktop") != 0) {
+        if (kept_any) append_buffer(&rebuilt, &rebuilt_len, &rebuilt_cap, ";");
+        append_buffer(&rebuilt, &rebuilt_len, &rebuilt_cap, trimmed);
+        kept_any = true;
+      }
+      free(trimmed);
+    }
+    free(work);
+    if (kept_any) {
+      append_buffer(&rebuilt, &rebuilt_len, &rebuilt_cap, ";");
+      char *newline = str_printf("x-scheme-handler/claude-cli=%s", rebuilt);
+      append_line_buffer(&out, &out_len, &out_cap, newline, &first);
+      free(newline);
+    }
+    free(rebuilt);
+  }
+  if (!out) out = xstrdup("");
+  int rc = write_text_file(path, out);
+  free(out);
+  free(copy);
+  free(content);
+  return rc;
+}
+
+static void add_linux_mimeapps_artifacts(ArtifactList *runtime,
+                                         const char *home) {
+  char *xdg_config = dup_env_or_join("XDG_CONFIG_HOME", home, ".config");
+  char *xdg_data = dup_env_or_join("XDG_DATA_HOME", home, DEFAULT_XDG_DATA_SUFFIX);
+  char *mime1 = path_join(xdg_config, "mimeapps.list");
+  char *apps_dir = path_join(xdg_data, "applications");
+  char *mime2 = path_join(apps_dir, "mimeapps.list");
+  bool exists1 = path_exists(mime1) && mimeapps_file_has_claude_handler(mime1);
+  bool exists2 = path_exists(mime2) && mimeapps_file_has_claude_handler(mime2);
+  artifact_list_push(
+      runtime,
+      path_artifact_as_kind("mimeapps_config", mime1, exists1, home, "high",
+                            true, "Linux xdg-mime 关联配置"));
+  artifact_list_push(
+      runtime,
+      path_artifact_as_kind("mimeapps_config", mime2, exists2, home, "high",
+                            true, "Linux xdg-mime 关联配置"));
+  free(xdg_config);
+  free(xdg_data);
+  free(mime1);
+  free(apps_dir);
+  free(mime2);
+}
+#endif
+#endif
+
+static void add_vscode_extension_artifacts(ArtifactList *runtime,
+                                           const char *home) {
+  const char *ext_prefixes[] = {
+      "anthropic.claude-code",
+      "anthropic.claude-code-internal",
+      NULL,
+  };
+  const char *roots[] = {
+      ".vscode/extensions",
+      ".cursor/extensions",
+      ".windsurf/extensions",
+      NULL,
+  };
+  for (size_t i = 0; roots[i] != NULL; ++i) {
+    char *root = path_join(home, roots[i]);
+    add_matching_children_artifacts(runtime, root, home, ext_prefixes,
+                                    "VS Code / Cursor / Windsurf 扩展目录");
+    free(root);
+  }
+}
+
+static void add_jetbrains_plugin_artifacts(ArtifactList *runtime,
+                                           const char *home) {
+  const char *plugin_prefixes[] = {"claude-code-jetbrains-plugin", NULL};
+  const char *ide_prefixes[] = {
+      "PyCharm", "IntelliJIdea", "IdeaIC", "WebStorm", "PhpStorm",
+      "RubyMine", "CLion", "GoLand", "Rider", "DataGrip", "AppCode",
+      "DataSpell", "Aqua", "Gateway", "Fleet", "AndroidStudio", NULL,
+  };
+#ifdef __APPLE__
+  const char *bases[] = {
+      "Library/Application Support/JetBrains",
+      "Library/Application Support",
+      "Library/Application Support/Google",
+      NULL,
+  };
+  for (size_t i = 0; bases[i] != NULL; ++i) {
+    char *base = path_join(home, bases[i]);
+    if (path_exists(base)) {
+      DIR *dir = opendir(base);
+      if (dir) {
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != NULL) {
+          if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+          bool ide_match = false;
+          for (size_t j = 0; ide_prefixes[j] != NULL; ++j) {
+            if (strncmp(ent->d_name, ide_prefixes[j], strlen(ide_prefixes[j])) == 0) {
+              ide_match = true;
+              break;
+            }
+          }
+          if (!ide_match) continue;
+          char *matched = path_join(base, ent->d_name);
+          char *plugins_dir = path_join(matched, "plugins");
+          add_matching_children_artifacts(runtime, plugins_dir, home, plugin_prefixes,
+                                          "JetBrains Claude Code 插件目录");
+          free(matched);
+          free(plugins_dir);
+        }
+        closedir(dir);
+      }
+    }
+    free(base);
+  }
+#elif defined(_WIN32)
+  const char *appdata = get_env_dup("APPDATA");
+  const char *localappdata = get_env_dup("LOCALAPPDATA");
+  char *base1 = appdata ? xstrdup(appdata) : path_join(home, "AppData\\Roaming");
+  char *base2 = localappdata ? xstrdup(localappdata) : path_join(home, "AppData\\Local");
+  const char *bases[] = {base1, base2, NULL};
+  for (size_t i = 0; bases[i] != NULL; ++i) {
+    if (!path_exists(bases[i])) continue;
+    char pattern[PATH_MAX_LEN];
+    snprintf(pattern, sizeof(pattern), "%s\\*", bases[i]);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) continue;
+    do {
+      if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+      bool ide_match = false;
+      for (size_t j = 0; ide_prefixes[j] != NULL; ++j) {
+        if (path_cmp_platform(fd.cFileName, ide_prefixes[j], strlen(ide_prefixes[j])) == 0) {
+          ide_match = true;
+          break;
+        }
+      }
+      if (!ide_match) continue;
+      char *matched = path_join(bases[i], fd.cFileName);
+      char *plugins_dir = path_join(matched, "plugins");
+      add_matching_children_artifacts(runtime, plugins_dir, home, plugin_prefixes,
+                                      "JetBrains Claude Code 插件目录");
+      free(matched);
+      free(plugins_dir);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+  }
+  free(base1);
+  free(base2);
+#else
+  const char *bases[] = {
+      ".config/JetBrains",
+      ".local/share/JetBrains",
+      NULL,
+  };
+  for (size_t i = 0; bases[i] != NULL; ++i) {
+    char *base = path_join(home, bases[i]);
+    if (path_exists(base)) {
+      DIR *dir = opendir(base);
+      if (dir) {
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != NULL) {
+          if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+          bool ide_match = false;
+          for (size_t j = 0; ide_prefixes[j] != NULL; ++j) {
+            if (strncmp(ent->d_name, ide_prefixes[j], strlen(ide_prefixes[j])) == 0) {
+              ide_match = true;
+              break;
+            }
+          }
+          if (!ide_match) continue;
+          char *matched = path_join(base, ent->d_name);
+          add_matching_children_artifacts(runtime, matched, home, plugin_prefixes,
+                                          "JetBrains Claude Code 插件目录");
+          free(matched);
+        }
+        closedir(dir);
+      }
+    }
+    free(base);
+  }
+  for (size_t j = 0; ide_prefixes[j] != NULL; ++j) {
+    char *hidden = str_printf(".%s", ide_prefixes[j]);
+    char *matched = path_join(home, hidden);
+    add_matching_children_artifacts(runtime, matched, home, plugin_prefixes,
+                                    "JetBrains Claude Code 插件目录");
+    free(hidden);
+    free(matched);
+  }
+#endif
+}
+
+static char *get_npm_global_prefix(const char *home) {
+  const char *env_prefix = get_env_dup("NPM_CONFIG_PREFIX");
+  if (env_prefix && *env_prefix) return xstrdup(env_prefix);
+#ifdef _WIN32
+  FILE *fp = _popen("npm config get prefix 2>NUL", "r");
+#else
+  FILE *fp = popen("npm config get prefix 2>/dev/null", "r");
+#endif
+  if (fp) {
+    char buf[PATH_MAX_LEN];
+    if (fgets(buf, sizeof(buf), fp)) {
+#ifdef _WIN32
+      _pclose(fp);
+#else
+      pclose(fp);
+#endif
+      char *trimmed = xstrdup(buf);
+      trim_trailing_newlines_simple(trimmed);
+      if (*trimmed) return trimmed;
+      free(trimmed);
+    } else {
+#ifdef _WIN32
+      _pclose(fp);
+#else
+      pclose(fp);
+#endif
+    }
+  }
+#ifdef _WIN32
+  const char *appdata = get_env_dup("APPDATA");
+  return appdata ? path_join(appdata, "npm") : NULL;
+#else
+  (void)home;
+  return NULL;
+#endif
+}
+
+static void add_npm_global_artifacts(ArtifactList *runtime,
+                                     const char *home) {
+  char *prefix = get_npm_global_prefix(home);
+  if (!prefix) return;
+#ifdef _WIN32
+  char *bin_cmd = path_join(prefix, "claude.cmd");
+  char *bin_ps1 = path_join(prefix, "claude.ps1");
+  char *bin_exe = path_join(prefix, "claude");
+  char *node_modules = path_join(prefix, "node_modules");
+  char *scope_dir = path_join(node_modules, "@anthropic-ai");
+  char *pkg = path_join(scope_dir, "claude-code");
+  artifact_list_push(runtime, path_artifact(bin_cmd, home, "high", true,
+                                            "全局 npm 安装的 claude.cmd"));
+  artifact_list_push(runtime, path_artifact(bin_ps1, home, "high", true,
+                                            "全局 npm 安装的 claude.ps1"));
+  artifact_list_push(runtime, path_artifact(bin_exe, home, "high", true,
+                                            "全局 npm 安装的 claude 可执行入口"));
+  artifact_list_push(runtime, path_artifact(pkg, home, "high", true,
+                                            "全局 npm 安装的 @anthropic-ai/claude-code 包目录"));
+  free(bin_cmd);
+  free(bin_ps1);
+  free(bin_exe);
+  free(node_modules);
+  free(scope_dir);
+  free(pkg);
+#else
+  char *bin_dir = path_join(prefix, "bin");
+  char *bin = path_join(bin_dir, "claude");
+  char *lib_dir = path_join(prefix, "lib");
+  char *node_modules = path_join(lib_dir, "node_modules");
+  char *scope_dir = path_join(node_modules, "@anthropic-ai");
+  char *pkg = path_join(scope_dir, "claude-code");
+  artifact_list_push(runtime, path_artifact(bin, home, "high", true,
+                                            "全局 npm 安装的 claude 可执行入口"));
+  artifact_list_push(runtime, path_artifact(pkg, home, "high", true,
+                                            "全局 npm 安装的 @anthropic-ai/claude-code 包目录"));
+  free(bin_dir);
+  free(bin);
+  free(lib_dir);
+  free(node_modules);
+  free(scope_dir);
+  free(pkg);
+#endif
+  free(prefix);
+}
+
+static bool is_known_shell_config_path(const char *path,
+                                       const char *home) {
+  char *zshrc = NULL;
+  char *bashrc = NULL;
+  char *fishrc = NULL;
+  get_shell_config_paths(home, &zshrc, &bashrc, &fishrc);
+  bool ok = path_equals_platform(zshrc, path) ||
+            path_equals_platform(bashrc, path) ||
+            path_equals_platform(fishrc, path);
+  free(zshrc);
+  free(bashrc);
+  free(fishrc);
+  return ok;
+}
+
+#ifndef _WIN32
+#ifndef __APPLE__
+static bool is_known_mimeapps_path(const char *path,
+                                   const char *home) {
+  char *xdg_config = dup_env_or_join("XDG_CONFIG_HOME", home, ".config");
+  char *xdg_data = dup_env_or_join("XDG_DATA_HOME", home, DEFAULT_XDG_DATA_SUFFIX);
+  char *mime1 = path_join(xdg_config, "mimeapps.list");
+  char *apps_dir = path_join(xdg_data, "applications");
+  char *mime2 = path_join(apps_dir, "mimeapps.list");
+  bool ok = path_equals_platform(mime1, path) || path_equals_platform(mime2, path);
+  free(xdg_config);
+  free(xdg_data);
+  free(mime1);
+  free(apps_dir);
+  free(mime2);
+  return ok;
+}
+#endif
+#endif
+
+static bool is_known_ide_extension_path(const char *path,
+                                        const char *home) {
+  const char *prefixes[] = {
+      "anthropic.claude-code",
+      "anthropic.claude-code-internal",
+      NULL,
+  };
+  const char *roots[] = {
+      ".vscode/extensions",
+      ".cursor/extensions",
+      ".windsurf/extensions",
+      NULL,
+  };
+  for (size_t i = 0; roots[i] != NULL; ++i) {
+    char *root = path_join(home, roots[i]);
+    bool match = path_is_same_or_within(root, path) &&
+                 component_starts_with_any(path, prefixes);
+    free(root);
+    if (match) return true;
+  }
+  return false;
+}
+
+static bool is_known_jetbrains_plugin_path(const char *path,
+                                           const char *home) {
+  const char *prefixes[] = {"claude-code-jetbrains-plugin", NULL};
+  return path_is_same_or_within(home, path) &&
+         component_starts_with_any(path, prefixes);
+}
+
+static bool is_known_npm_global_path(const char *path,
+                                     const char *home) {
+  char *prefix = get_npm_global_prefix(home);
+  if (!prefix) return false;
+#ifdef _WIN32
+  char *bin_cmd = path_join(prefix, "claude.cmd");
+  char *bin_ps1 = path_join(prefix, "claude.ps1");
+  char *bin_exe = path_join(prefix, "claude");
+  char *node_modules = path_join(prefix, "node_modules");
+  char *scope_dir = path_join(node_modules, "@anthropic-ai");
+  char *pkg = path_join(scope_dir, "claude-code");
+  bool ok = path_equals_platform(bin_cmd, path) ||
+            path_equals_platform(bin_ps1, path) ||
+            path_equals_platform(bin_exe, path) ||
+            path_is_same_or_within(pkg, path);
+  free(bin_cmd);
+  free(bin_ps1);
+  free(bin_exe);
+  free(node_modules);
+  free(scope_dir);
+  free(pkg);
+#else
+  char *bin_dir = path_join(prefix, "bin");
+  char *bin = path_join(bin_dir, "claude");
+  char *lib_dir = path_join(prefix, "lib");
+  char *node_modules = path_join(lib_dir, "node_modules");
+  char *scope_dir = path_join(node_modules, "@anthropic-ai");
+  char *pkg = path_join(scope_dir, "claude-code");
+  bool ok = path_equals_platform(bin, path) ||
+            path_is_same_or_within(pkg, path);
+  free(bin_dir);
+  free(bin);
+  free(lib_dir);
+  free(node_modules);
+  free(scope_dir);
+  free(pkg);
+#endif
+  free(prefix);
+  return ok;
 }
 
 /* ------------------------- macOS Keychain ------------------------- */
@@ -1830,6 +2638,10 @@ void collect_artifacts(const char *home,
 
   add_native_installer_artifacts(runtime, home);
   add_browser_native_host_artifacts(runtime, config_home, home);
+  add_shell_config_artifacts(runtime, config_home, home);
+  add_vscode_extension_artifacts(runtime, home);
+  add_jetbrains_plugin_artifacts(runtime, home);
+  add_npm_global_artifacts(runtime, home);
 
 #ifndef _WIN32
 #ifndef __APPLE__
@@ -1837,6 +2649,7 @@ void collect_artifacts(const char *home,
   artifact_list_push(runtime, path_artifact(desktop, home, "high", true,
                                             "Linux deep-link desktop entry"));
   free(desktop);
+  add_linux_mimeapps_artifacts(runtime, home);
 #endif
 #endif
 
@@ -1971,7 +2784,17 @@ static bool is_known_claude_restore_path(const char *path, const char *home) {
             path_is_same_or_within(cache, path) ||
             path_is_same_or_within(log, path) ||
             is_known_native_installer_path(path, home) ||
-            is_known_browser_integration_path(path, def, home);
+            is_known_browser_integration_path(path, def, home) ||
+            is_known_shell_config_path(path, home) ||
+            is_known_ide_extension_path(path, home) ||
+            is_known_jetbrains_plugin_path(path, home) ||
+            is_known_npm_global_path(path, home)
+#ifndef _WIN32
+#ifndef __APPLE__
+            || is_known_mimeapps_path(path, home)
+#endif
+#endif
+            ;
   free(def);
   free(cfg1);
   free(cfg2);
@@ -2406,6 +3229,7 @@ void run_cleanup(const ArtifactList *targets,
                         bool dry_run,
                         CleanupResults *results,
                         const char *home,
+                        const char *config_home,
                         BackupContext *backup_ctx) {
   cleanup_results_init(results);
   for (size_t i = 0; i < targets->len; ++i) {
@@ -2438,7 +3262,28 @@ void run_cleanup(const ArtifactList *targets,
       } else {
         abs_or_rel = xstrdup(a->identifier);
       }
-      if (path_exists(abs_or_rel) || path_is_symlink(abs_or_rel)) {
+      if (strcmp(a->kind, "shell_config") == 0) {
+        char *cache_zsh = get_shell_completion_cache_path(config_home, "zsh");
+        char *cache_bash = get_shell_completion_cache_path(config_home, "bash");
+        char *cache_fish = get_shell_completion_cache_path(config_home, "fish");
+        char *local_claude_path = path_join(config_home, "local/claude");
+        const char *cache_path = cache_zsh;
+        if (strstr(abs_or_rel, ".bashrc") != NULL) cache_path = cache_bash;
+        else if (strstr(abs_or_rel, "config.fish") != NULL) cache_path = cache_fish;
+        rc = cleanup_shell_config_file(abs_or_rel, cache_path, local_claude_path);
+        free(cache_zsh);
+        free(cache_bash);
+        free(cache_fish);
+        free(local_claude_path);
+      }
+#ifndef _WIN32
+#ifndef __APPLE__
+      else if (strcmp(a->kind, "mimeapps_config") == 0) {
+        rc = cleanup_mimeapps_file(abs_or_rel);
+      }
+#endif
+#endif
+      else if (path_exists(abs_or_rel) || path_is_symlink(abs_or_rel)) {
         rc = remove_recursive(abs_or_rel);
       }
       free(abs_or_rel);
@@ -2734,4 +3579,3 @@ int restore_from_backup_dir(const char *backup_dir,
   fclose(fp);
   return failed ? 1 : 0;
 }
-

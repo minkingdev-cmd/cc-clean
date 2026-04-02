@@ -248,7 +248,7 @@ int cc_clean_run(int argc, char **argv) {
   }
 
   CleanupResults results;
-  run_cleanup(&targets, opt.dry_run, &results, home, &backup_ctx);
+  run_cleanup(&targets, opt.dry_run, &results, home, config_home, &backup_ctx);
 
   if (opt.json) {
     print_json_payload(config_home, &runtime, &related, &targets, &results);

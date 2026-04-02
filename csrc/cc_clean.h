@@ -124,6 +124,7 @@ void run_cleanup(const ArtifactList *targets,
                  bool dry_run,
                  CleanupResults *results,
                  const char *home,
+                 const char *config_home,
                  BackupContext *backup_ctx);
 int restore_from_backup_dir(const char *backup_dir,
                             bool dry_run,

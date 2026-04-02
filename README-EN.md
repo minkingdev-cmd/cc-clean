@@ -18,8 +18,12 @@ It scans, backs up, removes, and restores Claude Code related local data and pla
   - log directories
   - session history
   - local install directories and the native installer
+  - shell config injections and cached completions
+  - Linux mimeapps / deep-link associations
   - browser integrations (Claude in Chrome / deep-link)
-  - plugin directories
+  - VS Code / Cursor / Windsurf extension directories
+  - JetBrains plugin directories
+  - global npm installation leftovers
   - credentials and platform-specific system entries
 - Creates backups before deletion
 - Restores from backups with the `restore` command
@@ -62,7 +66,7 @@ The executable is typically located at:
 
 Future tag releases are built and uploaded automatically by GitHub Actions.
 
-The current source tree also covers more uninstall leftovers, including local installs, the native installer, Claude in Chrome Native Host, and the Linux deep-link desktop entry.
+The current source tree also covers more uninstall leftovers, including local installs, the native installer, shell config injections, Linux mimeapps associations, Claude in Chrome Native Host, IDE plugin directories, global npm installation leftovers, and the Linux deep-link desktop entry.
 
 `v0.1.0` currently includes:
 

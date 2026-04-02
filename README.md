@@ -18,8 +18,12 @@
   - 日志目录
   - 会话历史
   - 本地安装目录与 native installer
+  - shell 配置注入与 completions
+  - Linux mimeapps / deep-link 关联
   - 浏览器集成（Claude in Chrome / deep-link）
-  - 插件目录
+  - VS Code / Cursor / Windsurf 扩展目录
+  - JetBrains 插件目录
+  - 全局 npm 安装残留
   - 平台相关凭据与系统项
 - 在清理前自动备份目标内容
 - 使用 `restore` 从备份恢复
@@ -62,7 +66,7 @@ cmake --build build
 
 未来的 tag 发布会由 GitHub Actions 自动构建并上传对应平台资产。
 
-当前源码已覆盖更多卸载残留，包括本地安装目录、native installer、Claude in Chrome Native Host 与 Linux deep-link desktop entry。
+当前源码已覆盖更多卸载残留，包括本地安装目录、native installer、shell 配置注入、Linux mimeapps 关联、Claude in Chrome Native Host、IDE 插件目录、全局 npm 安装残留与 Linux deep-link desktop entry。
 
 当前 `v0.1.0` 已提供：
 

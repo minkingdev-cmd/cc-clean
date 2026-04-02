@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - 增加发布说明模板，便于后续版本延续发布流程
 - 验证并启用自动发布流程，统一 v0.1.0 现有发布资产命名
 - 扩展卸载覆盖范围，新增本地安装目录、native installer、Claude in Chrome Native Host、Linux deep-link desktop entry，以及更多运行时缓存/会话目录的清理与恢复
+- 继续扩展卸载覆盖范围，新增 shell 配置注入、Linux mimeapps 关联、VS Code/Cursor/Windsurf 扩展目录、JetBrains 插件目录与全局 npm 安装残留的清理与恢复
 
 ## [0.1.0] - 2026-04-02
 
