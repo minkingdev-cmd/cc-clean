@@ -1,0 +1,11 @@
+build/
+build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+Testing/
+*.o
+*.obj
+*.exe
+.DS_Store
