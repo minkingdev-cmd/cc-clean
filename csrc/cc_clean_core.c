@@ -1,8 +1,39 @@
 #include "cc_clean.h"
 
 static const char *APP_NAME = "claude-cli-nodejs";
+static const char *CHROME_NATIVE_HOST_MANIFEST =
+    "com.anthropic.claude_code_browser_extension.json";
+
+typedef struct {
+  const char *suffix;
+  const char *note;
+} RelativePathSpec;
+
 #ifdef _WIN32
+static const char *CHROME_NATIVE_HOST_IDENTIFIER =
+    "com.anthropic.claude_code_browser_extension";
 static const char *WINDOWS_DEEP_LINK_PROTOCOL = "claude-cli";
+static const char *WINDOWS_NATIVE_HOST_MANIFEST_DIR_SUFFIX =
+    "Claude Code\\ChromeNativeHost";
+static const char *WINDOWS_NATIVE_HOST_REGISTRY_BASES[] = {
+    "Software\\Google\\Chrome\\NativeMessagingHosts",
+    "Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts",
+    "Software\\ArcBrowser\\Arc\\NativeMessagingHosts",
+    "Software\\Chromium\\NativeMessagingHosts",
+    "Software\\Microsoft\\Edge\\NativeMessagingHosts",
+    "Software\\Vivaldi\\NativeMessagingHosts",
+    "Software\\Opera Software\\Opera Stable\\NativeMessagingHosts",
+    NULL,
+};
+static const char *DEFAULT_XDG_DATA_SUFFIX = ".local\\share";
+static const char *DEFAULT_XDG_CACHE_SUFFIX = ".cache";
+static const char *DEFAULT_XDG_STATE_SUFFIX = ".local\\state";
+static const char *DEFAULT_USER_BIN_SUFFIX = ".local\\bin";
+#else
+static const char *DEFAULT_XDG_DATA_SUFFIX = ".local/share";
+static const char *DEFAULT_XDG_CACHE_SUFFIX = ".cache";
+static const char *DEFAULT_XDG_STATE_SUFFIX = ".local/state";
+static const char *DEFAULT_USER_BIN_SUFFIX = ".local/bin";
 #endif
 
 /* ------------------------- 基础字符串工具 ------------------------- */
@@ -1048,6 +1079,255 @@ static void get_env_paths(const char *home,
 #endif
 }
 
+
+static char *dup_env_or_join(const char *env_name,
+                             const char *home,
+                             const char *fallback_suffix) {
+  const char *v = get_env_dup(env_name);
+  return v ? xstrdup(v) : path_join(home, fallback_suffix);
+}
+
+static void add_relative_artifact(ArtifactList *list,
+                                  const char *base,
+                                  const char *suffix,
+                                  const char *home,
+                                  const char *confidence,
+                                  bool safe_clean,
+                                  const char *note) {
+  char *path = path_join(base, suffix);
+  artifact_list_push(list, path_artifact(path, home, confidence, safe_clean, note));
+  free(path);
+}
+
+static void add_relative_artifacts(ArtifactList *list,
+                                   const char *base,
+                                   const char *home,
+                                   const char *confidence,
+                                   bool safe_clean,
+                                   const RelativePathSpec *specs,
+                                   size_t count) {
+  for (size_t i = 0; i < count; ++i) {
+    add_relative_artifact(list, base, specs[i].suffix, home, confidence,
+                          safe_clean, specs[i].note);
+  }
+}
+
+static void get_native_installer_paths(const char *home,
+                                       char **versions_out,
+                                       char **staging_out,
+                                       char **locks_out,
+                                       char **executable_out) {
+  char *data_home = dup_env_or_join("XDG_DATA_HOME", home, DEFAULT_XDG_DATA_SUFFIX);
+  char *cache_home = dup_env_or_join("XDG_CACHE_HOME", home, DEFAULT_XDG_CACHE_SUFFIX);
+  char *state_home = dup_env_or_join("XDG_STATE_HOME", home, DEFAULT_XDG_STATE_SUFFIX);
+  char *user_bin = path_join(home, DEFAULT_USER_BIN_SUFFIX);
+  char *claude_data = path_join(data_home, "claude");
+  char *claude_cache = path_join(cache_home, "claude");
+  char *claude_state = path_join(state_home, "claude");
+#ifdef _WIN32
+  const char *executable_name = "claude.exe";
+#else
+  const char *executable_name = "claude";
+#endif
+  *versions_out = path_join(claude_data, "versions");
+  *staging_out = path_join(claude_cache, "staging");
+  *locks_out = path_join(claude_state, "locks");
+  *executable_out = path_join(user_bin, executable_name);
+  free(data_home);
+  free(cache_home);
+  free(state_home);
+  free(user_bin);
+  free(claude_data);
+  free(claude_cache);
+  free(claude_state);
+}
+
+static void add_native_installer_artifacts(ArtifactList *runtime, const char *home) {
+  char *versions = NULL;
+  char *staging = NULL;
+  char *locks = NULL;
+  char *executable = NULL;
+  get_native_installer_paths(home, &versions, &staging, &locks, &executable);
+  artifact_list_push(runtime, path_artifact(versions, home, "high", true,
+                                            "Native installer 版本目录"));
+  artifact_list_push(runtime, path_artifact(staging, home, "high", true,
+                                            "Native installer staging 缓存"));
+  artifact_list_push(runtime, path_artifact(locks, home, "high", true,
+                                            "Native installer 锁目录"));
+  artifact_list_push(runtime, path_artifact(executable, home, "high", true,
+                                            "Native installer 用户级可执行文件"));
+  free(versions);
+  free(staging);
+  free(locks);
+  free(executable);
+}
+
+#ifndef _WIN32
+#ifndef __APPLE__
+static char *get_linux_deep_link_desktop_path(const char *home) {
+  char *data_home = dup_env_or_join("XDG_DATA_HOME", home, DEFAULT_XDG_DATA_SUFFIX);
+  char *applications = path_join(data_home, "applications");
+  char *desktop = path_join(applications, "claude-code-url-handler.desktop");
+  free(data_home);
+  free(applications);
+  return desktop;
+}
+#endif
+#endif
+
+static void add_browser_native_host_artifacts(ArtifactList *runtime,
+                                              const char *config_home,
+                                              const char *home) {
+  char *chrome_dir = path_join(config_home, "chrome");
+  artifact_list_push(runtime, path_artifact(chrome_dir, home, "high", true,
+                                            "Claude in Chrome 运行目录"));
+  free(chrome_dir);
+
+#ifdef _WIN32
+  const char *appdata = get_env_dup("APPDATA");
+  char *base = appdata ? xstrdup(appdata) : path_join(home, "AppData\\Local");
+  char *manifest_dir = path_join(base, WINDOWS_NATIVE_HOST_MANIFEST_DIR_SUFFIX);
+  char *manifest_path = path_join(manifest_dir, CHROME_NATIVE_HOST_MANIFEST);
+  artifact_list_push(runtime, path_artifact(manifest_path, home, "high", true,
+                                            "Windows Claude in Chrome Native Host manifest"));
+  free(base);
+  free(manifest_dir);
+  free(manifest_path);
+#elif defined(__APPLE__)
+  const char *dirs[] = {
+      "Library/Application Support/Google/Chrome/NativeMessagingHosts",
+      "Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+      "Library/Application Support/Arc/User Data/NativeMessagingHosts",
+      "Library/Application Support/Chromium/NativeMessagingHosts",
+      "Library/Application Support/Microsoft Edge/NativeMessagingHosts",
+      "Library/Application Support/Vivaldi/NativeMessagingHosts",
+      "Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts",
+      NULL,
+  };
+  for (size_t i = 0; dirs[i] != NULL; ++i) {
+    char *dir = path_join(home, dirs[i]);
+    char *manifest = path_join(dir, CHROME_NATIVE_HOST_MANIFEST);
+    artifact_list_push(runtime, path_artifact(manifest, home, "high", true,
+                                              "浏览器 Native Messaging Host manifest"));
+    free(dir);
+    free(manifest);
+  }
+#else
+  const char *dirs[] = {
+      ".config/google-chrome/NativeMessagingHosts",
+      ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+      ".config/chromium/NativeMessagingHosts",
+      ".config/microsoft-edge/NativeMessagingHosts",
+      ".config/vivaldi/NativeMessagingHosts",
+      ".config/opera/NativeMessagingHosts",
+      NULL,
+  };
+  for (size_t i = 0; dirs[i] != NULL; ++i) {
+    char *dir = path_join(home, dirs[i]);
+    char *manifest = path_join(dir, CHROME_NATIVE_HOST_MANIFEST);
+    artifact_list_push(runtime, path_artifact(manifest, home, "high", true,
+                                              "浏览器 Native Messaging Host manifest"));
+    free(dir);
+    free(manifest);
+  }
+#endif
+}
+
+static bool is_known_native_installer_path(const char *path, const char *home) {
+  char *versions = NULL;
+  char *staging = NULL;
+  char *locks = NULL;
+  char *executable = NULL;
+  get_native_installer_paths(home, &versions, &staging, &locks, &executable);
+  bool ok = path_is_same_or_within(versions, path) ||
+            path_is_same_or_within(staging, path) ||
+            path_is_same_or_within(locks, path) ||
+            path_is_same_or_within(executable, path);
+  free(versions);
+  free(staging);
+  free(locks);
+  free(executable);
+  return ok;
+}
+
+static bool is_known_browser_integration_path(const char *path,
+                                              const char *config_home,
+                                              const char *home) {
+  char *chrome_dir = path_join(config_home, "chrome");
+  if (path_is_same_or_within(chrome_dir, path)) {
+    free(chrome_dir);
+    return true;
+  }
+  free(chrome_dir);
+
+#ifdef _WIN32
+  const char *appdata = get_env_dup("APPDATA");
+  char *base = appdata ? xstrdup(appdata) : path_join(home, "AppData\\Local");
+  char *manifest_dir = path_join(base, WINDOWS_NATIVE_HOST_MANIFEST_DIR_SUFFIX);
+  char *manifest_path = path_join(manifest_dir, CHROME_NATIVE_HOST_MANIFEST);
+  bool ok = path_equals_platform(manifest_path, path);
+  free(base);
+  free(manifest_dir);
+  free(manifest_path);
+  return ok;
+#elif defined(__APPLE__)
+  char *deep_link_app = path_join(home, "Applications/Claude Code URL Handler.app");
+  if (path_is_same_or_within(deep_link_app, path)) {
+    free(deep_link_app);
+    return true;
+  }
+  free(deep_link_app);
+  const char *dirs[] = {
+      "Library/Application Support/Google/Chrome/NativeMessagingHosts",
+      "Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+      "Library/Application Support/Arc/User Data/NativeMessagingHosts",
+      "Library/Application Support/Chromium/NativeMessagingHosts",
+      "Library/Application Support/Microsoft Edge/NativeMessagingHosts",
+      "Library/Application Support/Vivaldi/NativeMessagingHosts",
+      "Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts",
+      NULL,
+  };
+  for (size_t i = 0; dirs[i] != NULL; ++i) {
+    char *dir = path_join(home, dirs[i]);
+    char *manifest = path_join(dir, CHROME_NATIVE_HOST_MANIFEST);
+    bool match = path_equals_platform(manifest, path);
+    free(dir);
+    free(manifest);
+    if (match) {
+      return true;
+    }
+  }
+  return false;
+#else
+  char *desktop = get_linux_deep_link_desktop_path(home);
+  if (path_equals_platform(desktop, path)) {
+    free(desktop);
+    return true;
+  }
+  free(desktop);
+  const char *dirs[] = {
+      ".config/google-chrome/NativeMessagingHosts",
+      ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+      ".config/chromium/NativeMessagingHosts",
+      ".config/microsoft-edge/NativeMessagingHosts",
+      ".config/vivaldi/NativeMessagingHosts",
+      ".config/opera/NativeMessagingHosts",
+      NULL,
+  };
+  for (size_t i = 0; dirs[i] != NULL; ++i) {
+    char *dir = path_join(home, dirs[i]);
+    char *manifest = path_join(dir, CHROME_NATIVE_HOST_MANIFEST);
+    bool match = path_equals_platform(manifest, path);
+    free(dir);
+    free(manifest);
+    if (match) {
+      return true;
+    }
+  }
+  return false;
+#endif
+}
+
 /* ------------------------- macOS Keychain ------------------------- */
 
 #ifdef __APPLE__
@@ -1260,29 +1540,29 @@ static char *truncate_detail(const char *value, size_t max_len) {
 }
 
 static void add_windows_registry_artifacts(ArtifactList *runtime) {
-  char *k1 = str_printf("HKCU\\Software\\Classes\\%s", WINDOWS_DEEP_LINK_PROTOCOL);
+  char *k1 = str_printf("HKCU\Software\Classes\%s", WINDOWS_DEEP_LINK_PROTOCOL);
   char *k1_default =
-      str_printf("HKCU\\Software\\Classes\\%s [value:(Default)]",
+      str_printf("HKCU\Software\Classes\%s [value:(Default)]",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k1_url_protocol =
-      str_printf("HKCU\\Software\\Classes\\%s [value:URL Protocol]",
+      str_printf("HKCU\Software\Classes\%s [value:URL Protocol]",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k_open =
-      str_printf("HKCU\\Software\\Classes\\%s\\shell\\open",
+      str_printf("HKCU\Software\Classes\%s\shell\open",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k2 =
-      str_printf("HKCU\\Software\\Classes\\%s\\shell\\open\\command",
+      str_printf("HKCU\Software\Classes\%s\shell\open\command",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k2_default =
-      str_printf("HKCU\\Software\\Classes\\%s\\shell\\open\\command [value:(Default)]",
+      str_printf("HKCU\Software\Classes\%s\shell\open\command [value:(Default)]",
                  WINDOWS_DEEP_LINK_PROTOCOL);
 
-  char *sub1 = str_printf("Software\\Classes\\%s", WINDOWS_DEEP_LINK_PROTOCOL);
+  char *sub1 = str_printf("Software\Classes\%s", WINDOWS_DEEP_LINK_PROTOCOL);
   char *sub_open =
-      str_printf("Software\\Classes\\%s\\shell\\open",
+      str_printf("Software\Classes\%s\shell\open",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *sub2 =
-      str_printf("Software\\Classes\\%s\\shell\\open\\command",
+      str_printf("Software\Classes\%s\shell\open\command",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *v_root_default = NULL;
   char *v_root_url_protocol = NULL;
@@ -1330,6 +1610,33 @@ static void add_windows_registry_artifacts(ArtifactList *runtime) {
                                                "Windows deep-link 命令默认值",
                                                cmd_default_detail));
 
+  for (size_t i = 0; WINDOWS_NATIVE_HOST_REGISTRY_BASES[i] != NULL; ++i) {
+    char *subkey = str_printf("%s\\%s", WINDOWS_NATIVE_HOST_REGISTRY_BASES[i],
+                              CHROME_NATIVE_HOST_IDENTIFIER);
+    char *identifier = str_printf("HKCU\\%s", subkey);
+    char *identifier_default = str_printf("HKCU\\%s [value:(Default)]", subkey);
+    char *value = NULL;
+    bool key_exists = windows_registry_key_exists(HKEY_CURRENT_USER, subkey);
+    bool has_default = windows_registry_value_exists(HKEY_CURRENT_USER, subkey,
+                                                     NULL, &value);
+    char *detail = truncate_detail(value, 400);
+    artifact_list_push(runtime,
+                       make_artifact("registry", identifier, key_exists,
+                                     "high", true,
+                                     "Windows 浏览器 Native Host 注册表项"));
+    artifact_list_push(runtime,
+                       make_artifact_with_detail("registry_value",
+                                                 identifier_default,
+                                                 has_default, "high", true,
+                                                 "Windows 浏览器 Native Host manifest 路径",
+                                                 detail));
+    free(subkey);
+    free(identifier);
+    free(identifier_default);
+    free(value);
+    free(detail);
+  }
+
   free(k1);
   free(k1_default);
   free(k1_url_protocol);
@@ -1372,7 +1679,19 @@ static bool is_windows_related_credential(const char *target_name) {
 }
 
 static bool is_safe_windows_registry_subkey(const char *subkey) {
-  return starts_with(subkey, "Software\\Classes\\claude-cli");
+  if (starts_with(subkey, "Software\\Classes\\claude-cli")) {
+    return true;
+  }
+  for (size_t i = 0; WINDOWS_NATIVE_HOST_REGISTRY_BASES[i] != NULL; ++i) {
+    char *full = str_printf("%s\\%s", WINDOWS_NATIVE_HOST_REGISTRY_BASES[i],
+                            CHROME_NATIVE_HOST_IDENTIFIER);
+    bool ok = path_equals_platform(subkey, full);
+    free(full);
+    if (ok) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static bool windows_registry_read_value_raw(HKEY root,
@@ -1456,37 +1775,49 @@ void collect_artifacts(const char *home,
   char *env_log = NULL;
   get_env_paths(home, &env_data, &env_config, &env_cache, &env_log);
 
-  char *p1 = path_join(home, ".claude.json");
-  char *p2 = path_join(home, ".claude.oauth.json");
-  char *p3 = path_join(config_home, ".credentials.json");
-  char *p4 = path_join(config_home, ".deep-link-register-failed");
-  char *p5 = path_join(config_home, "remote");
-  char *p6 = path_join(config_home, "projects");
-  char *p7 = path_join(config_home, "debug");
-  char *p8 = path_join(config_home, "telemetry");
-  char *p9 = path_join(config_home, "plugins");
-  char *p10 = path_join(config_home, "cowork_plugins");
-
-  artifact_list_push(runtime, path_artifact(p1, home, "high", true,
+  char *global_cfg = path_join(home, ".claude.json");
+  char *oauth_cfg = path_join(home, ".claude.oauth.json");
+  artifact_list_push(runtime, path_artifact(global_cfg, home, "high", true,
                                             "全局配置文件（历史/兼容路径）"));
-  artifact_list_push(runtime, path_artifact(p2, home, "high", true,
+  artifact_list_push(runtime, path_artifact(oauth_cfg, home, "high", true,
                                             "OAuth 全局配置文件"));
-  artifact_list_push(runtime, path_artifact(p3, home, "high", true,
-                                            "明文凭据 fallback 文件"));
-  artifact_list_push(runtime, path_artifact(p4, home, "high", true,
-                                            "deep-link 注册失败标记"));
-  artifact_list_push(runtime, path_artifact(p5, home, "high", true,
-                                            "远程/CCR 相关本地状态"));
-  artifact_list_push(runtime, path_artifact(p6, home, "high", true,
-                                            "会话 transcript / session 历史"));
-  artifact_list_push(runtime, path_artifact(p7, home, "high", true,
-                                            "debug 日志"));
-  artifact_list_push(runtime, path_artifact(p8, home, "high", true,
-                                            "1P telemetry 失败批次/缓存"));
-  artifact_list_push(runtime, path_artifact(p9, home, "high", true,
-                                            "插件安装/缓存目录"));
-  artifact_list_push(runtime, path_artifact(p10, home, "high", true,
-                                            "cowork 插件目录"));
+  free(global_cfg);
+  free(oauth_cfg);
+
+  const RelativePathSpec runtime_specs[] = {
+      {".credentials.json", "明文凭据 fallback 文件"},
+      {".deep-link-register-failed", "deep-link 注册失败标记"},
+      {"remote", "远程/CCR 相关本地状态"},
+      {"projects", "会话 transcript / session 历史"},
+      {"history.jsonl", "命令历史与交互历史"},
+      {"uploads", "桥接/附件上传缓存"},
+      {"server-sessions.json", "本地 server session 状态"},
+      {"sessions", "并发 session 目录"},
+      {"debug", "debug 日志"},
+      {"telemetry", "1P telemetry 失败批次/缓存"},
+      {"plugins", "插件安装/缓存目录"},
+      {"cowork_plugins", "cowork 插件目录"},
+      {"mcp-needs-auth-cache.json", "MCP 认证需求缓存"},
+      {"usage-data", "usage insights 数据"},
+      {"startup-perf", "启动性能采样目录"},
+      {"backups", "内置备份目录"},
+      {"plans", "plans 目录"},
+      {"cache", "运行缓存目录"},
+      {"traces", "性能 tracing 目录"},
+      {"chrome", "Claude in Chrome 运行目录"},
+      {"ide", "IDE 集成状态目录"},
+      {"shell-snapshots", "shell 快照目录"},
+      {"jobs", "后台 jobs 目录"},
+      {"tasks", "任务目录"},
+      {"teams", "团队/协作目录"},
+      {"local", "本地安装目录"},
+      {"completion.zsh", "zsh completion 缓存"},
+      {"completion.bash", "bash completion 缓存"},
+      {"completion.fish", "fish completion 缓存"},
+  };
+  add_relative_artifacts(runtime, config_home, home, "high", true,
+                         runtime_specs,
+                         sizeof(runtime_specs) / sizeof(runtime_specs[0]));
 
   artifact_list_push(runtime, path_artifact(env_data, home, "high", true,
                                             "env-paths 数据目录"));
@@ -1496,6 +1827,18 @@ void collect_artifacts(const char *home,
                                             "env-paths 缓存目录"));
   artifact_list_push(runtime, path_artifact(env_log, home, "high", true,
                                             "env-paths 日志目录"));
+
+  add_native_installer_artifacts(runtime, home);
+  add_browser_native_host_artifacts(runtime, config_home, home);
+
+#ifndef _WIN32
+#ifndef __APPLE__
+  char *desktop = get_linux_deep_link_desktop_path(home);
+  artifact_list_push(runtime, path_artifact(desktop, home, "high", true,
+                                            "Linux deep-link desktop entry"));
+  free(desktop);
+#endif
+#endif
 
 #ifdef __APPLE__
   char *deep_link_app = path_join(home, "Applications/Claude Code URL Handler.app");
@@ -1516,14 +1859,22 @@ void collect_artifacts(const char *home,
       path_artifact(config_home, home, "low", false,
                     "Claude 相关配置根目录，可能包含用户自定义内容"));
 
-  char *settings = path_join(config_home, "settings.json");
-  char *agents = path_join(config_home, "agents");
-  artifact_list_push(related, path_artifact(settings, home, "low", false,
-                                            "用户设置，默认不建议自动删除"));
-  artifact_list_push(related, path_artifact(agents, home, "low", false,
-                                            "用户 agents 定义，默认不建议自动删除"));
-  free(settings);
-  free(agents);
+  const RelativePathSpec related_specs[] = {
+      {"settings.json", "用户设置，默认不建议自动删除"},
+      {"agents", "用户 agents 定义，默认不建议自动删除"},
+      {"keybindings.json", "用户快捷键配置，默认不建议自动删除"},
+      {"CLAUDE.md", "用户级 CLAUDE.md，默认不建议自动删除"},
+      {"rules", "用户 rules 目录，默认不建议自动删除"},
+      {"skills", "用户 skills 目录，默认不建议自动删除"},
+      {"commands", "用户 commands 目录，默认不建议自动删除"},
+      {"output-styles", "用户输出样式目录，默认不建议自动删除"},
+      {"magic-docs", "用户 Magic Docs 数据，默认不建议自动删除"},
+      {"session-memory", "用户 session memory，默认不建议自动删除"},
+      {"agent-memory", "用户 agent memory，默认不建议自动删除"},
+  };
+  add_relative_artifacts(related, config_home, home, "low", false,
+                         related_specs,
+                         sizeof(related_specs) / sizeof(related_specs[0]));
 
   if (path_is_dir(config_home)) {
 #ifdef _WIN32
@@ -1557,16 +1908,6 @@ void collect_artifacts(const char *home,
 #endif
   }
 
-  free(p1);
-  free(p2);
-  free(p3);
-  free(p4);
-  free(p5);
-  free(p6);
-  free(p7);
-  free(p8);
-  free(p9);
-  free(p10);
   free(env_data);
   free(env_config);
   free(env_cache);
@@ -1628,8 +1969,16 @@ static bool is_known_claude_restore_path(const char *path, const char *home) {
             path_is_same_or_within(data, path) ||
             path_is_same_or_within(config, path) ||
             path_is_same_or_within(cache, path) ||
-            path_is_same_or_within(log, path);
-  free(def); free(cfg1); free(cfg2); free(data); free(config); free(cache); free(log);
+            path_is_same_or_within(log, path) ||
+            is_known_native_installer_path(path, home) ||
+            is_known_browser_integration_path(path, def, home);
+  free(def);
+  free(cfg1);
+  free(cfg2);
+  free(data);
+  free(config);
+  free(cache);
+  free(log);
   return ok;
 }
 

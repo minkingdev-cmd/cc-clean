@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - 增加发布自动化 workflow、贡献指南与安全策略
 - 增加发布说明模板，便于后续版本延续发布流程
 - 验证并启用自动发布流程，统一 v0.1.0 现有发布资产命名
+- 扩展卸载覆盖范围，新增本地安装目录、native installer、Claude in Chrome Native Host、Linux deep-link desktop entry，以及更多运行时缓存/会话目录的清理与恢复
 
 ## [0.1.0] - 2026-04-02
 
@@ -25,3 +26,4 @@ All notable changes to this project will be documented in this file.
 - 稳定 Windows CI 测试脚本
 - 升级 GitHub Actions `actions/checkout` 至 `v5`
 - 统一文档、Release 与下载说明
+- 扩展卸载覆盖范围，新增本地安装目录、native installer、Claude in Chrome Native Host、Linux deep-link desktop entry，以及更多运行时缓存/会话目录的清理与恢复

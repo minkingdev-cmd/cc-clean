@@ -17,6 +17,8 @@ It scans, backs up, removes, and restores Claude Code related local data and pla
   - cache directories
   - log directories
   - session history
+  - local install directories and the native installer
+  - browser integrations (Claude in Chrome / deep-link)
   - plugin directories
   - credentials and platform-specific system entries
 - Creates backups before deletion
@@ -59,6 +61,8 @@ The executable is typically located at:
 - Checksum file: `SHA256SUMS.txt`
 
 Future tag releases are built and uploaded automatically by GitHub Actions.
+
+The current source tree also covers more uninstall leftovers, including local installs, the native installer, Claude in Chrome Native Host, and the Linux deep-link desktop entry.
 
 `v0.1.0` currently includes:
 

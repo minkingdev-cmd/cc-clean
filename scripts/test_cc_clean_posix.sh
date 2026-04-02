@@ -35,20 +35,12 @@ assert_file_not_exists() {
   [[ ! -e "$path" ]] || fail "$name: 文件仍存在 $path"
 }
 
-assert_equals() {
-  local actual="$1"
-  local expected="$2"
-  local name="$3"
-  [[ "$actual" == "$expected" ]] || fail "$name: 期望 [$expected] 实际 [$actual]"
-}
-
 assert_json_python() {
   local json_text="$1"
   local expr="$2"
   local name="$3"
-JSON_INPUT="$json_text" python3 - "$expr" "$name" <<'PY'
+  JSON_INPUT="$json_text" python3 - "$expr" "$name" <<'PY'
 import json, os, sys
-
 expr = sys.argv[1]
 name = sys.argv[2]
 data = json.loads(os.environ["JSON_INPUT"])
@@ -69,7 +61,7 @@ build_if_needed() {
 
 test_help_flags() {
   local out
-  out="$("$BIN" --help)"
+  out="$($BIN --help)"
   assert_contains "$out" "--allow-unsafe-purge" "帮助输出"
   assert_contains "$out" "--allow-unsafe-restore" "帮助输出"
   pass "帮助输出包含危险开关"
@@ -88,7 +80,7 @@ test_purge_guard() {
   mkdir -p "$tmpdir/projects"
   printf 'secret' >"$tmpdir/.credentials.json"
   set +e
-  out="$("$BIN" clean --config-dir "$tmpdir" --purge-config-home --dry-run 2>&1)"
+  out="$($BIN clean --config-dir "$tmpdir" --purge-config-home --dry-run 2>&1)"
   local rc=$?
   set -e
   rm -rf "$tmpdir"
@@ -105,7 +97,7 @@ test_backup_and_restore_flow() {
   printf 'secret' >"$tmpdir/.credentials.json"
   printf 'hello' >"$tmpdir/projects/session1/msg.txt"
 
-  clean_out="$("$BIN" clean --config-dir "$tmpdir" --backup-dir "$backup" -y)"
+  clean_out="$($BIN clean --config-dir "$tmpdir" --backup-dir "$backup" -y)"
   assert_contains "$clean_out" "[removed] file" "clean 输出"
   assert_contains "$clean_out" "[removed] dir" "clean 输出"
   assert_file_exists "$backup/manifest.tsv" "manifest"
@@ -115,13 +107,13 @@ test_backup_and_restore_flow() {
   assert_file_not_exists "$tmpdir/projects" "clean 删除 projects"
 
   set +e
-  restore_out="$("$BIN" restore --backup-dir "$backup" -y 2>&1)"
+  restore_out="$($BIN restore --backup-dir "$backup" -y 2>&1)"
   local rc=$?
   set -e
   [[ $rc -ne 0 ]] || fail "未加 allow-unsafe-restore 时应拒绝恢复到 /tmp"
   assert_contains "$restore_out" "--allow-unsafe-restore" "restore 白名单保护"
 
-  "$BIN" restore --backup-dir "$backup" --allow-unsafe-restore -y >/dev/null
+  $BIN restore --backup-dir "$backup" --allow-unsafe-restore -y >/dev/null
   assert_file_exists "$tmpdir/.credentials.json" "restore 恢复 credentials"
   assert_file_exists "$tmpdir/projects/session1/msg.txt" "restore 恢复 projects"
 
@@ -137,8 +129,8 @@ test_restore_json_output() {
   printf 'secret' >"$tmpdir/.credentials.json"
   printf 'hello' >"$tmpdir/projects/session1/msg.txt"
 
-  "$BIN" clean --config-dir "$tmpdir" --backup-dir "$backup" -y >/dev/null
-  json_out="$("$BIN" restore --backup-dir "$backup" --allow-unsafe-restore --json -y)"
+  $BIN clean --config-dir "$tmpdir" --backup-dir "$backup" -y >/dev/null
+  json_out="$($BIN restore --backup-dir "$backup" --allow-unsafe-restore --json -y)"
   assert_json_python "$json_out" "'cleanup_results' in data and isinstance(data['cleanup_results'], list) and len(data['cleanup_results']) >= 2" "restore json cleanup_results"
   assert_json_python "$json_out" "all(x['status'] == 'restored' for x in data['cleanup_results'])" "restore json restored 状态"
   assert_json_python "$json_out" "any(x['kind'] == 'filesystem' and x['identifier'] == '$tmpdir/.credentials.json' for x in data['cleanup_results'])" "restore json credentials 结果"
@@ -150,13 +142,13 @@ test_restore_json_output() {
 }
 
 test_json_output_and_include_related() {
-  local tmpdir json_out plan_out
+  local tmpdir json_out plan_out clean_json
   tmpdir="$(mktemp -d /tmp/ccfgtest.json.XXXXXX)"
   mkdir -p "$tmpdir/agents" "$tmpdir/agents.backup.demo"
   printf '{}' >"$tmpdir/settings.json"
   printf 'secret' >"$tmpdir/.credentials.json"
 
-  json_out="$("$BIN" check --config-dir "$tmpdir" --json)"
+  json_out="$($BIN check --config-dir "$tmpdir" --json)"
   assert_contains "$json_out" '"config_home"' "check json"
   assert_contains "$json_out" '"runtime"' "check json"
   assert_contains "$json_out" '"related"' "check json"
@@ -165,13 +157,12 @@ test_json_output_and_include_related() {
   assert_json_python "$json_out" "any(x['identifier'] == '$tmpdir/.credentials.json' and x['exists'] is True and x['safe_clean'] is True for x in data['runtime'])" "check json credentials 条目"
   assert_json_python "$json_out" "any(x['identifier'] == '$tmpdir/settings.json' and x['safe_clean'] is False for x in data['related'])" "check json related settings"
 
-  plan_out="$("$BIN" clean --config-dir "$tmpdir" --include-related --dry-run)"
+  plan_out="$($BIN clean --config-dir "$tmpdir" --include-related --dry-run)"
   assert_contains "$plan_out" 'settings.json' "include-related 计划"
   assert_contains "$plan_out" 'agents.backup.demo' "include-related 计划"
   assert_contains "$plan_out" '[file]' "include-related 计划"
 
-  local clean_json
-  clean_json="$("$BIN" clean --config-dir "$tmpdir" --include-related --dry-run --json)"
+  clean_json="$($BIN clean --config-dir "$tmpdir" --include-related --dry-run --json)"
   assert_json_python "$clean_json" "'cleanup_targets' in data and isinstance(data['cleanup_targets'], list)" "clean json cleanup_targets"
   assert_json_python "$clean_json" "any(x['identifier'] == '$tmpdir/settings.json' for x in data['cleanup_targets'])" "clean json settings target"
   assert_json_python "$clean_json" "'cleanup_results' in data and all(x['status'] == 'skipped' for x in data['cleanup_results'])" "clean json skipped results"
@@ -187,10 +178,10 @@ test_strict_restore_removes_extras() {
   mkdir -p "$tmpdir/projects/session1"
   printf 'hello' >"$tmpdir/projects/session1/msg.txt"
 
-  "$BIN" clean --config-dir "$tmpdir" --backup-dir "$backup" -y >/dev/null
+  $BIN clean --config-dir "$tmpdir" --backup-dir "$backup" -y >/dev/null
   mkdir -p "$tmpdir/projects/session1"
   printf 'extra' >"$tmpdir/projects/session1/extra.txt"
-  "$BIN" restore --backup-dir "$backup" --allow-unsafe-restore -y >/dev/null
+  $BIN restore --backup-dir "$backup" --allow-unsafe-restore -y >/dev/null
 
   assert_file_exists "$tmpdir/projects/session1/msg.txt" "strict restore 恢复原文件"
   assert_file_not_exists "$tmpdir/projects/session1/extra.txt" "strict restore 删除额外文件"
@@ -204,10 +195,86 @@ test_allow_unsafe_purge_on_temp_dir() {
   tmpdir="$(mktemp -d /tmp/ccfgtest.allowpurge.XXXXXX)"
   mkdir -p "$tmpdir/projects"
   printf 'secret' >"$tmpdir/.credentials.json"
-  out="$("$BIN" clean --config-dir "$tmpdir" --purge-config-home --allow-unsafe-purge -y)"
+  out="$($BIN clean --config-dir "$tmpdir" --purge-config-home --allow-unsafe-purge -y)"
   assert_contains "$out" "整个配置根目录" "unsafe purge 输出"
   assert_file_not_exists "$tmpdir" "unsafe purge 删除目录"
   pass "allow-unsafe-purge 临时目录回归通过"
+}
+
+test_extended_runtime_install_artifacts() {
+  local home backup config json_out clean_out restore_out
+  home="$(mktemp -d /tmp/ccfgtest.extended-home.XXXXXX)"
+  backup="$(mktemp -d /tmp/ccbackup.extended.XXXXXX)"
+  config="$home/.claude"
+  mkdir -p "$config/local" "$config/uploads/u1" "$config/sessions/s1" \
+           "$config/startup-perf" "$config/backups" "$config/plans" \
+           "$config/cache" "$config/traces" "$config/ide" \
+           "$config/shell-snapshots" "$config/jobs" "$config/tasks" \
+           "$config/teams"
+  printf 'wrapper' >"$config/local/claude"
+  printf 'history' >"$config/history.jsonl"
+  printf 'upload' >"$config/uploads/u1/file.txt"
+  printf '{}' >"$config/server-sessions.json"
+  printf '{}' >"$config/sessions/s1/state.json"
+  printf '{}' >"$config/mcp-needs-auth-cache.json"
+  printf '{}' >"$config/usage-data"
+  printf 'perf' >"$config/startup-perf/run1.txt"
+  printf 'bak' >"$config/backups/state.txt"
+  printf 'plan' >"$config/plans/p1.txt"
+  printf 'cache' >"$config/cache/changelog.md"
+  printf '{}' >"$config/traces/t1.json"
+  printf '{}' >"$config/ide/state.json"
+  printf 'snap' >"$config/shell-snapshots/s1.txt"
+  printf '{}' >"$config/jobs/j1.json"
+  printf '{}' >"$config/tasks/t1.json"
+  printf '{}' >"$config/teams/team1.json"
+  printf 'completion' >"$config/completion.zsh"
+  mkdir -p "$home/.local/share/claude/versions" "$home/.cache/claude/staging" \
+           "$home/.local/state/claude/locks" "$home/.local/bin"
+  printf 'bin' >"$home/.local/share/claude/versions/1.0.0"
+  printf 'stage' >"$home/.cache/claude/staging/1.0.0"
+  printf 'lock' >"$home/.local/state/claude/locks/1.0.0"
+  printf 'exec' >"$home/.local/bin/claude"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    mkdir -p "$home/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+    printf '{}' >"$home/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.anthropic.claude_code_browser_extension.json"
+  else
+    mkdir -p "$home/.local/share/applications" "$home/.config/google-chrome/NativeMessagingHosts"
+    printf '[Desktop Entry]\nName=Claude\n' >"$home/.local/share/applications/claude-code-url-handler.desktop"
+    printf '{}' >"$home/.config/google-chrome/NativeMessagingHosts/com.anthropic.claude_code_browser_extension.json"
+  fi
+
+  json_out="$(HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" XDG_STATE_HOME="$home/.local/state" "$BIN" check --json)"
+  assert_json_python "$json_out" "any(x['identifier'].endswith('/.claude/local') and x['exists'] is True for x in data['runtime'])" "extended local install detected"
+  assert_json_python "$json_out" "any(x['identifier'].endswith('/.claude/history.jsonl') and x['exists'] is True for x in data['runtime'])" "extended history detected"
+  assert_json_python "$json_out" "any(x['identifier'].endswith('/.local/bin/claude') and x['exists'] is True for x in data['runtime'])" "extended user bin detected"
+  assert_json_python "$json_out" "any(x['identifier'].endswith('com.anthropic.claude_code_browser_extension.json') and x['exists'] is True for x in data['runtime'])" "extended native host detected"
+
+  clean_out="$(HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" XDG_STATE_HOME="$home/.local/state" "$BIN" clean --backup-dir "$backup" -y)"
+  assert_contains "$clean_out" "history.jsonl" "extended clean output"
+  assert_file_not_exists "$config/history.jsonl" "extended history removed"
+  assert_file_not_exists "$home/.local/bin/claude" "extended native installer removed"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    assert_file_not_exists "$home/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.anthropic.claude_code_browser_extension.json" "extended mac manifest removed"
+  else
+    assert_file_not_exists "$home/.local/share/applications/claude-code-url-handler.desktop" "extended linux desktop removed"
+    assert_file_not_exists "$home/.config/google-chrome/NativeMessagingHosts/com.anthropic.claude_code_browser_extension.json" "extended linux manifest removed"
+  fi
+
+  restore_out="$(HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" XDG_STATE_HOME="$home/.local/state" "$BIN" restore --backup-dir "$backup" -y)"
+  assert_contains "$restore_out" "restored" "extended restore output"
+  assert_file_exists "$config/history.jsonl" "extended history restored"
+  assert_file_exists "$home/.local/bin/claude" "extended native installer restored"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    assert_file_exists "$home/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.anthropic.claude_code_browser_extension.json" "extended mac manifest restored"
+  else
+    assert_file_exists "$home/.local/share/applications/claude-code-url-handler.desktop" "extended linux desktop restored"
+    assert_file_exists "$home/.config/google-chrome/NativeMessagingHosts/com.anthropic.claude_code_browser_extension.json" "extended linux manifest restored"
+  fi
+
+  rm -rf "$home" "$backup"
+  pass "扩展安装/运行残留回归通过"
 }
 
 main() {
@@ -228,6 +295,7 @@ main() {
   test_json_output_and_include_related
   test_strict_restore_removes_extras
   test_allow_unsafe_purge_on_temp_dir
+  test_extended_runtime_install_artifacts
   printf '全部回归测试通过。\n'
 }
 

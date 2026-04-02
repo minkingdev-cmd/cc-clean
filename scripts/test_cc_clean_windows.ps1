@@ -10,34 +10,30 @@ $Bin = Join-Path $RootDir "build\Release\cc-clean.exe"
 $Src = Join-Path $RootDir "csrc"
 
 function Assert-Contains {
-    param(
-        [string]$Haystack,
-        [string]$Needle,
-        [string]$Name
-    )
+    param([string]$Haystack,[string]$Needle,[string]$Name)
     if (-not $Haystack.Contains($Needle)) {
-        throw (("{0}: missing [{1}]" -f $Name, $Needle))
+        throw ("{0}: missing [{1}]" -f $Name, $Needle)
     }
 }
 
 function Assert-Exists {
-    param([string]$PathValue, [string]$Name)
+    param([string]$PathValue,[string]$Name)
     if (-not (Test-Path -LiteralPath $PathValue)) {
-        throw (("{0}: missing path {1}" -f $Name, $PathValue))
+        throw ("{0}: missing path {1}" -f $Name, $PathValue)
     }
 }
 
 function Assert-NotExists {
-    param([string]$PathValue, [string]$Name)
+    param([string]$PathValue,[string]$Name)
     if (Test-Path -LiteralPath $PathValue) {
-        throw (("{0}: path still exists {1}" -f $Name, $PathValue))
+        throw ("{0}: path still exists {1}" -f $Name, $PathValue)
     }
 }
 
 function Assert-True {
-    param([bool]$Condition, [string]$Name)
+    param([bool]$Condition,[string]$Name)
     if (-not $Condition) {
-        throw (("{0}: assertion failed" -f $Name))
+        throw ("{0}: assertion failed" -f $Name)
     }
 }
 
@@ -213,10 +209,105 @@ function Test-AllowUnsafePurgeOnTempDir {
         New-Item -ItemType Directory -Path (Join-Path $tmp "projects") -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $tmp ".credentials.json") -Value "secret" -NoNewline
         $out = & $Bin clean --config-dir $tmp --purge-config-home --allow-unsafe-purge -y | Out-String
+        Assert-Contains $out "整个配置根目录" "unsafe purge output"
         Assert-NotExists $tmp "unsafe purge removed dir"
         Write-Host "PASS: allow-unsafe-purge works on temp dir"
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ExtendedRuntimeInstallArtifacts {
+    $homeDir = New-TestDir "ccfgtest-extended-home"
+    $backup = New-TestDir "ccbackup-extended"
+    $configDir = Join-Path $homeDir ".claude"
+    $oldUserProfile = $env:USERPROFILE
+    $oldAppData = $env:APPDATA
+    $oldLocalAppData = $env:LOCALAPPDATA
+    $oldXdgData = $env:XDG_DATA_HOME
+    $oldXdgCache = $env:XDG_CACHE_HOME
+    $oldXdgState = $env:XDG_STATE_HOME
+    try {
+        $env:USERPROFILE = $homeDir
+        $env:APPDATA = Join-Path $homeDir "AppData\Roaming"
+        $env:LOCALAPPDATA = Join-Path $homeDir "AppData\Local"
+        $env:XDG_DATA_HOME = Join-Path $homeDir ".local\share"
+        $env:XDG_CACHE_HOME = Join-Path $homeDir ".cache"
+        $env:XDG_STATE_HOME = Join-Path $homeDir ".local\state"
+
+        New-Item -ItemType Directory -Path (Join-Path $configDir "local") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "uploads\u1") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "sessions\s1") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "startup-perf") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "backups") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "plans") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "cache") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "traces") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "ide") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "shell-snapshots") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "jobs") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "tasks") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $configDir "teams") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $configDir "local\claude") -Value "wrapper" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "history.jsonl") -Value "history" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "uploads\u1\file.txt") -Value "upload" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "server-sessions.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "sessions\s1\state.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "mcp-needs-auth-cache.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "usage-data") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "startup-perf\run1.txt") -Value "perf" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "backups\state.txt") -Value "bak" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "plans\p1.txt") -Value "plan" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "cache\changelog.md") -Value "cache" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "traces\t1.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "ide\state.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "shell-snapshots\s1.txt") -Value "snap" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "jobs\j1.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "tasks\t1.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "teams\team1.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $configDir "completion.bash") -Value "completion" -NoNewline
+
+        New-Item -ItemType Directory -Path (Join-Path $homeDir ".local\share\claude\versions") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $homeDir ".cache\claude\staging") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $homeDir ".local\state\claude\locks") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $homeDir ".local\bin") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $homeDir ".local\share\claude\versions\1.0.0") -Value "bin" -NoNewline
+        Set-Content -LiteralPath (Join-Path $homeDir ".cache\claude\staging\1.0.0") -Value "stage" -NoNewline
+        Set-Content -LiteralPath (Join-Path $homeDir ".local\state\claude\locks\1.0.0") -Value "lock" -NoNewline
+        Set-Content -LiteralPath (Join-Path $homeDir ".local\bin\claude.exe") -Value "exec" -NoNewline
+
+        $nativeHostDir = Join-Path $env:APPDATA "Claude Code\ChromeNativeHost"
+        New-Item -ItemType Directory -Path $nativeHostDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $nativeHostDir "com.anthropic.claude_code_browser_extension.json") -Value "{}" -NoNewline
+
+        $jsonOut = & $Bin check --json | Out-String
+        $obj = $jsonOut | ConvertFrom-Json
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*history.jsonl" -and $_.exists -eq $true }).Count -ge 1) "extended history detected"
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*local*" -and $_.exists -eq $true }).Count -ge 1) "extended local detected"
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*claude.exe" -and $_.exists -eq $true }).Count -ge 1) "extended user bin detected"
+        Assert-True (($obj.runtime | Where-Object { $_.identifier -like "*com.anthropic.claude_code_browser_extension.json" -and $_.exists -eq $true }).Count -ge 1) "extended native host detected"
+
+        $cleanOut = & $Bin clean --backup-dir $backup -y | Out-String
+        Assert-Contains $cleanOut "history.jsonl" "extended clean output"
+        Assert-NotExists (Join-Path $configDir "history.jsonl") "extended history removed"
+        Assert-NotExists (Join-Path $homeDir ".local\bin\claude.exe") "extended native installer removed"
+        Assert-NotExists (Join-Path $nativeHostDir "com.anthropic.claude_code_browser_extension.json") "extended native host removed"
+
+        $restoreOut = & $Bin restore --backup-dir $backup -y | Out-String
+        Assert-Contains $restoreOut "restored" "extended restore output"
+        Assert-Exists (Join-Path $configDir "history.jsonl") "extended history restored"
+        Assert-Exists (Join-Path $homeDir ".local\bin\claude.exe") "extended native installer restored"
+        Assert-Exists (Join-Path $nativeHostDir "com.anthropic.claude_code_browser_extension.json") "extended native host restored"
+        Write-Host "PASS: extended install/runtime artifacts work"
+    } finally {
+        $env:USERPROFILE = $oldUserProfile
+        $env:APPDATA = $oldAppData
+        $env:LOCALAPPDATA = $oldLocalAppData
+        $env:XDG_DATA_HOME = $oldXdgData
+        $env:XDG_CACHE_HOME = $oldXdgCache
+        $env:XDG_STATE_HOME = $oldXdgState
+        Remove-Item -LiteralPath $homeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -228,12 +319,8 @@ function Test-WindowsRegistryAndCredentialRoundTrip {
     $cmdValue = '%LOCALAPPDATA%\claude-cli\claude.exe "%1"'
     $skipReason = $null
 
-    if (Test-Path -LiteralPath $regBase) {
-        $skipReason = "existing HKCU:\Software\Classes\claude-cli found"
-    }
-    if (-not (Get-Command cmdkey -ErrorAction SilentlyContinue)) {
-        $skipReason = "cmdkey not found"
-    }
+    if (Test-Path -LiteralPath $regBase) { $skipReason = "existing HKCU:\Software\Classes\claude-cli found" }
+    if (-not (Get-Command cmdkey -ErrorAction SilentlyContinue)) { $skipReason = "cmdkey not found" }
     if ($skipReason) {
         Write-Host "SKIP: $skipReason"
         Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
@@ -298,9 +385,7 @@ function Test-WindowsRegistryAndCredentialRoundTrip {
 Build-IfNeeded
 
 if ($Tests -and $Tests.Count -gt 0) {
-    foreach ($testName in $Tests) {
-        & $testName
-    }
+    foreach ($testName in $Tests) { & $testName }
     Write-Host "Selected regression tests passed."
     exit 0
 }
@@ -313,5 +398,6 @@ Test-RestoreJsonOutput
 Test-JsonOutputAndIncludeRelated
 Test-StrictRestoreRemovesExtras
 Test-AllowUnsafePurgeOnTempDir
+Test-ExtendedRuntimeInstallArtifacts
 Test-WindowsRegistryAndCredentialRoundTrip
 Write-Host "All regression tests passed."

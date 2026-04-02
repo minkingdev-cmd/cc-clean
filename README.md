@@ -17,6 +17,8 @@
   - 缓存目录
   - 日志目录
   - 会话历史
+  - 本地安装目录与 native installer
+  - 浏览器集成（Claude in Chrome / deep-link）
   - 插件目录
   - 平台相关凭据与系统项
 - 在清理前自动备份目标内容
@@ -59,6 +61,8 @@ cmake --build build
 - 校验文件：`SHA256SUMS.txt`
 
 未来的 tag 发布会由 GitHub Actions 自动构建并上传对应平台资产。
+
+当前源码已覆盖更多卸载残留，包括本地安装目录、native installer、Claude in Chrome Native Host 与 Linux deep-link desktop entry。
 
 当前 `v0.1.0` 已提供：
 
