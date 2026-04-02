@@ -2482,29 +2482,29 @@ static char *truncate_detail(const char *value, size_t max_len) {
 }
 
 static void add_windows_registry_artifacts(ArtifactList *runtime) {
-  char *k1 = str_printf("HKCU\Software\Classes\%s", WINDOWS_DEEP_LINK_PROTOCOL);
+  char *k1 = str_printf("HKCU\\Software\\Classes\\%s", WINDOWS_DEEP_LINK_PROTOCOL);
   char *k1_default =
-      str_printf("HKCU\Software\Classes\%s [value:(Default)]",
+      str_printf("HKCU\\Software\\Classes\\%s [value:(Default)]",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k1_url_protocol =
-      str_printf("HKCU\Software\Classes\%s [value:URL Protocol]",
+      str_printf("HKCU\\Software\\Classes\\%s [value:URL Protocol]",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k_open =
-      str_printf("HKCU\Software\Classes\%s\shell\open",
+      str_printf("HKCU\\Software\\Classes\\%s\\shell\\open",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k2 =
-      str_printf("HKCU\Software\Classes\%s\shell\open\command",
+      str_printf("HKCU\\Software\\Classes\\%s\\shell\\open\\command",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *k2_default =
-      str_printf("HKCU\Software\Classes\%s\shell\open\command [value:(Default)]",
+      str_printf("HKCU\\Software\\Classes\\%s\\shell\\open\\command [value:(Default)]",
                  WINDOWS_DEEP_LINK_PROTOCOL);
 
-  char *sub1 = str_printf("Software\Classes\%s", WINDOWS_DEEP_LINK_PROTOCOL);
+  char *sub1 = str_printf("Software\\Classes\\%s", WINDOWS_DEEP_LINK_PROTOCOL);
   char *sub_open =
-      str_printf("Software\Classes\%s\shell\open",
+      str_printf("Software\\Classes\\%s\\shell\\open",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *sub2 =
-      str_printf("Software\Classes\%s\shell\open\command",
+      str_printf("Software\\Classes\\%s\\shell\\open\\command",
                  WINDOWS_DEEP_LINK_PROTOCOL);
   char *v_root_default = NULL;
   char *v_root_url_protocol = NULL;

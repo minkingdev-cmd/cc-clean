@@ -1,3 +1,7 @@
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #ifndef CC_CLEAN_H
 #define CC_CLEAN_H
 
@@ -18,6 +22,7 @@
 #include <wincred.h>
 #define PATH_SEP '\\'
 #define PATH_MAX_LEN 4096
+#define strtok_r strtok_s
 #else
 #include <dirent.h>
 #include <fcntl.h>
