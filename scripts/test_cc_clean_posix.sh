@@ -68,10 +68,10 @@ test_help_flags() {
 }
 
 test_no_system_call() {
-  if find "$SRC" -name '*.c' -print0 | xargs -0 grep -n 'system(' >/dev/null 2>&1; then
-    fail "源码中仍存在 system()"
+  if find "$SRC" -name '*.c' -print0 | xargs -0 grep -nE '(^|[^_[:alnum:]])(system|popen|_popen)\(' >/dev/null 2>&1; then
+    fail "源码中仍存在 system()/popen()/_popen()"
   fi
-  pass "源码中不存在 system()"
+  pass "源码中不存在 system()/popen()/_popen()"
 }
 
 test_purge_guard() {
@@ -199,6 +199,76 @@ test_allow_unsafe_purge_on_temp_dir() {
   assert_contains "$out" "整个配置根目录" "unsafe purge 输出"
   assert_file_not_exists "$tmpdir" "unsafe purge 删除目录"
   pass "allow-unsafe-purge 临时目录回归通过"
+}
+
+test_restore_rejects_dotdot_target() {
+  local home backup out rc orig
+  home="$(mktemp -d /tmp/ccfgtest.dotdot-home.XXXXXX)"
+  backup="$(mktemp -d /tmp/ccbackup.dotdot.XXXXXX)"
+  mkdir -p "$backup/files"
+  printf 'payload' >"$backup/files/payload.txt"
+  orig="$home/.claude/../escape.txt"
+  cat >"$backup/manifest.tsv" <<EOF
+VERSION	2
+FS	$orig	files/payload.txt	file
+EOF
+
+  set +e
+  out="$(HOME="$home" "$BIN" restore --backup-dir "$backup" -y 2>&1)"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "dotdot restore target 应被拒绝"
+  assert_contains "$out" "恢复目标不在允许范围内" "dotdot restore target"
+  assert_file_not_exists "$home/escape.txt" "dotdot restore target 未写出到白名单外"
+
+  rm -rf "$home" "$backup"
+  pass "restore 拒绝 .. 目标路径绕过"
+}
+
+test_restore_rejects_backup_escape() {
+  local home backup_root backup out rc orig
+  home="$(mktemp -d /tmp/ccfgtest.escape-home.XXXXXX)"
+  backup_root="$(mktemp -d /tmp/ccbackup.escape-root.XXXXXX)"
+  backup="$backup_root/backup"
+  mkdir -p "$backup"
+  printf 'payload' >"$backup_root/outside.txt"
+  orig="$home/.claude/restore.txt"
+  cat >"$backup/manifest.tsv" <<EOF
+VERSION	2
+FS	$orig	../outside.txt	file
+EOF
+
+  set +e
+  out="$(HOME="$home" "$BIN" restore --backup-dir "$backup" -y 2>&1)"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "backup_dir 外逃的 rel 应被拒绝"
+  assert_contains "$out" "恢复失败" "backup_dir escape"
+  assert_file_not_exists "$home/.claude/restore.txt" "backup_dir escape 未写入目标"
+
+  rm -rf "$home" "$backup_root"
+  pass "restore 拒绝 backup_dir 外逃 rel"
+}
+
+test_restore_rejects_overlong_manifest_line() {
+  local home backup out rc
+  home="$(mktemp -d /tmp/ccfgtest.longline-home.XXXXXX)"
+  backup="$(mktemp -d /tmp/ccbackup.longline.XXXXXX)"
+  python3 - "$backup/manifest.tsv" <<'PY2'
+from pathlib import Path
+import sys
+Path(sys.argv[1]).write_text("VERSION\t2\n" + "BROKEN\t" + ("A" * 17000) + "\n")
+PY2
+
+  set +e
+  out="$(HOME="$home" "$BIN" restore --backup-dir "$backup" -y 2>&1)"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "超长 manifest 行应被拒绝"
+  assert_contains "$out" "manifest.tsv 包含超长行" "overlong manifest"
+
+  rm -rf "$home" "$backup"
+  pass "restore 拒绝超长 manifest 行"
 }
 
 test_extended_runtime_install_artifacts() {
@@ -392,6 +462,9 @@ main() {
   test_json_output_and_include_related
   test_strict_restore_removes_extras
   test_allow_unsafe_purge_on_temp_dir
+  test_restore_rejects_dotdot_target
+  test_restore_rejects_backup_escape
+  test_restore_rejects_overlong_manifest_line
   test_extended_runtime_install_artifacts
   test_shell_ide_npm_and_mime_cleanup
   printf '全部回归测试通过。\n'

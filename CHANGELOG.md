@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- 修复 restore 安全校验：阻止 `..` 绕过目标路径白名单、阻止备份源路径逃逸 `backup_dir`、拒绝超长 `manifest.tsv` 行，并移除 `popen` / `_popen` 调用
+
 - 补充 `CHANGELOG.md`
 - 统一 README、英文 README、构建文档与发布说明中的下载与使用入口
 - 增加 Release / Changelog 交叉链接，方便源码构建与发布包下载

@@ -176,10 +176,128 @@ static bool path_equals_platform(const char *a, const char *b) {
 }
 
 char *expand_home(const char *path, const char *home);
+#ifndef _WIN32
+static int run_process_capture_posix(const char *const argv[],
+                                     char **stdout_out,
+                                     bool silence_stderr);
+#endif
 
 static char *canonicalish_path(const char *path, const char *home) {
   char *p = expand_home(path, home);
   normalize_separators(p);
+  size_t len = strlen(p);
+  size_t prefix_len = 0;
+  bool absolute = false;
+#ifdef _WIN32
+  if (len >= 2 && isalpha((unsigned char)p[0]) && p[1] == ':') {
+    prefix_len = 2;
+    if (len >= 3 && is_sep_char(p[2])) {
+      absolute = true;
+      prefix_len = 3;
+    }
+  } else if (len >= 2 && is_sep_char(p[0]) && is_sep_char(p[1])) {
+    absolute = true;
+    prefix_len = 2;
+  }
+#else
+  if (len >= 1 && p[0] == '/') {
+    absolute = true;
+    prefix_len = 1;
+  }
+#endif
+
+  char **parts = NULL;
+  size_t parts_len = 0, parts_cap = 0;
+  size_t i = prefix_len;
+  while (i < len) {
+    while (i < len && is_sep_char(p[i])) i++;
+    if (i >= len) break;
+    size_t start = i;
+    while (i < len && !is_sep_char(p[i])) i++;
+    size_t seg_len = i - start;
+    if (seg_len == 0) continue;
+    char *seg = (char *)malloc(seg_len + 1);
+    if (!seg) {
+      fprintf(stderr, "内存分配失败\n");
+      exit(2);
+    }
+    memcpy(seg, p + start, seg_len);
+    seg[seg_len] = '\0';
+    if (strcmp(seg, ".") == 0) {
+      free(seg);
+      continue;
+    }
+    if (strcmp(seg, "..") == 0) {
+      if (parts_len > 0 && strcmp(parts[parts_len - 1], "..") != 0) {
+        free(parts[--parts_len]);
+      } else if (!absolute) {
+        if (parts_len == parts_cap) {
+          size_t next = parts_cap == 0 ? 8 : parts_cap * 2;
+          char **tmp = (char **)realloc(parts, next * sizeof(char *));
+          if (!tmp) {
+            fprintf(stderr, "内存分配失败\n");
+            exit(2);
+          }
+          parts = tmp;
+          parts_cap = next;
+        }
+        parts[parts_len++] = seg;
+        continue;
+      }
+      free(seg);
+      continue;
+    }
+    if (parts_len == parts_cap) {
+      size_t next = parts_cap == 0 ? 8 : parts_cap * 2;
+      char **tmp = (char **)realloc(parts, next * sizeof(char *));
+      if (!tmp) {
+        fprintf(stderr, "内存分配失败\n");
+        exit(2);
+      }
+      parts = tmp;
+      parts_cap = next;
+    }
+    parts[parts_len++] = seg;
+  }
+
+  size_t out_cap = len + 4;
+  char *out = (char *)malloc(out_cap);
+  if (!out) {
+    fprintf(stderr, "内存分配失败\n");
+    exit(2);
+  }
+  size_t out_len = 0;
+  if (prefix_len > 0) {
+    memcpy(out, p, prefix_len);
+    out_len = prefix_len;
+  }
+  if (absolute && out_len == 0) {
+    out[out_len++] = PATH_SEP;
+  }
+  for (size_t idx = 0; idx < parts_len; ++idx) {
+    bool need_sep = out_len > 0 && !is_sep_char(out[out_len - 1]);
+    if (need_sep) out[out_len++] = PATH_SEP;
+    size_t seg_len = strlen(parts[idx]);
+    memcpy(out + out_len, parts[idx], seg_len);
+    out_len += seg_len;
+  }
+  if (out_len == 0) {
+#ifdef _WIN32
+    if (prefix_len >= 2) {
+      memcpy(out, p, prefix_len);
+      out_len = prefix_len;
+    } else {
+      out[out_len++] = '.';
+    }
+#else
+    out[out_len++] = absolute ? '/' : '.';
+#endif
+  }
+  out[out_len] = '\0';
+  for (size_t idx = 0; idx < parts_len; ++idx) free(parts[idx]);
+  free(parts);
+  free(p);
+  p = out;
   strip_trailing_separators(p);
   return p;
 }
@@ -191,6 +309,29 @@ static bool path_is_same_or_within(const char *base, const char *candidate) {
   if (path_cmp_platform(base, candidate, blen) != 0) return false;
   if (clen == blen) return true;
   return is_sep_char(candidate[blen]);
+}
+
+static bool path_is_absolute_platform(const char *path) {
+  if (!path || !*path) return false;
+#ifdef _WIN32
+  if (strlen(path) >= 2 && isalpha((unsigned char)path[0]) && path[1] == ':') {
+    return strlen(path) >= 3 && is_sep_char(path[2]);
+  }
+  return strlen(path) >= 2 && is_sep_char(path[0]) && is_sep_char(path[1]);
+#else
+  return path[0] == '/';
+#endif
+}
+
+static bool canonical_path_is_same_or_within(const char *base,
+                                             const char *candidate,
+                                             const char *home) {
+  char *canon_base = canonicalish_path(base, home ? home : "");
+  char *canon_candidate = canonicalish_path(candidate, home ? home : "");
+  bool ok = path_is_same_or_within(canon_base, canon_candidate);
+  free(canon_base);
+  free(canon_candidate);
+  return ok;
 }
 
 char *expand_home(const char *path, const char *home) {
@@ -761,7 +902,7 @@ static char *field_encode(const char *s) {
   for (size_t i = 0; i < len; ++i) {
     unsigned char c = (unsigned char)s[i];
     if (c == '%' || c == '\t' || c == '\n' || c == '\r') {
-      sprintf(p, "%%%02X", c);
+      snprintf(p, 4, "%%%02X", c);
       p += 3;
     } else {
       *p++ = (char)c;
@@ -811,7 +952,7 @@ static char *bytes_to_hex(const unsigned char *data, size_t len) {
     exit(2);
   }
   for (size_t i = 0; i < len; ++i) {
-    sprintf(out + i * 2, "%02X", data[i]);
+    snprintf(out + i * 2, 3, "%02X", data[i]);
   }
   out[len * 2] = '\0';
   return out;
@@ -1950,38 +2091,21 @@ static void add_jetbrains_plugin_artifacts(ArtifactList *runtime,
 static char *get_npm_global_prefix(const char *home) {
   const char *env_prefix = get_env_dup("NPM_CONFIG_PREFIX");
   if (env_prefix && *env_prefix) return xstrdup(env_prefix);
-#ifdef _WIN32
-  FILE *fp = _popen("npm config get prefix 2>NUL", "r");
-#else
-  FILE *fp = popen("npm config get prefix 2>/dev/null", "r");
-#endif
-  if (fp) {
-    char buf[PATH_MAX_LEN];
-    if (fgets(buf, sizeof(buf), fp)) {
-#ifdef _WIN32
-      _pclose(fp);
-#else
-      pclose(fp);
-#endif
-      char *trimmed = xstrdup(buf);
-      trim_trailing_newlines_simple(trimmed);
-      if (*trimmed) return trimmed;
-      free(trimmed);
-    } else {
-#ifdef _WIN32
-      _pclose(fp);
-#else
-      pclose(fp);
-#endif
-    }
+#ifndef _WIN32
+  const char *argv[] = {"npm", "config", "get", "prefix", NULL};
+  char *buf = NULL;
+  int rc = run_process_capture_posix(argv, &buf, true);
+  if (rc == 0 && buf) {
+    trim_trailing_newlines_simple(buf);
+    if (*buf) return buf;
   }
-#ifdef _WIN32
-  const char *appdata = get_env_dup("APPDATA");
-  return appdata ? path_join(appdata, "npm") : NULL;
+  free(buf);
 #else
+  const char *appdata = get_env_dup("APPDATA");
+  if (appdata && *appdata) return path_join(appdata, "npm");
+#endif
   (void)home;
   return NULL;
-#endif
 }
 
 static void add_npm_global_artifacts(ArtifactList *runtime,
@@ -2136,12 +2260,12 @@ static bool is_known_npm_global_path(const char *path,
   return ok;
 }
 
-/* ------------------------- macOS Keychain ------------------------- */
+/* ------------------------- 进程执行辅助 ------------------------- */
 
-#ifdef __APPLE__
-static int run_process_capture(const char *const argv[],
-                               char **stdout_out,
-                               bool silence_stderr) {
+#ifndef _WIN32
+static int run_process_capture_posix(const char *const argv[],
+                                     char **stdout_out,
+                                     bool silence_stderr) {
   int out_pipe[2];
   if (pipe(out_pipe) != 0) return -1;
 
@@ -2209,6 +2333,16 @@ static int run_process_capture(const char *const argv[],
   }
   if (WIFEXITED(status)) return WEXITSTATUS(status);
   return -1;
+}
+#endif
+
+/* ------------------------- macOS Keychain ------------------------- */
+
+#ifdef __APPLE__
+static int run_process_capture(const char *const argv[],
+                               char **stdout_out,
+                               bool silence_stderr) {
+  return run_process_capture_posix(argv, stdout_out, silence_stderr);
 }
 
 static int run_process_status(const char *const argv[], bool silence_stderr) {
@@ -2806,15 +2940,21 @@ static bool is_known_claude_restore_path(const char *path, const char *home) {
 }
 
 bool is_safe_purge_target_path(const char *path, const char *home) {
-  if (is_root_like_path(path, home)) return false;
-  if (is_known_system_path(path, home)) return false;
-  return is_default_config_home_path(path, home);
+  char *canon = canonicalish_path(path, home);
+  bool ok = !is_root_like_path(canon, home) &&
+            !is_known_system_path(canon, home) &&
+            is_default_config_home_path(canon, home);
+  free(canon);
+  return ok;
 }
 
 static bool is_safe_restore_path(const char *path, const char *home) {
-  if (is_root_like_path(path, home)) return false;
-  if (is_known_system_path(path, home)) return false;
-  return is_known_claude_restore_path(path, home);
+  char *canon = canonicalish_path(path, home);
+  bool ok = !is_root_like_path(canon, home) &&
+            !is_known_system_path(canon, home) &&
+            is_known_claude_restore_path(canon, home);
+  free(canon);
+  return ok;
 }
 
 static int backup_filesystem_artifact(BackupContext *ctx,
@@ -2847,7 +2987,10 @@ static int backup_keychain_artifact(BackupContext *ctx, const Artifact *a) {
   const char *argv[] = {"security", "find-generic-password", "-s", a->identifier, "-w", NULL};
   char *buf = NULL;
   int rc = run_process_capture(argv, &buf, true);
-  if (rc != 0) return 1;
+  if (rc != 0) {
+    free(buf);
+    return 1;
+  }
   if (!buf) return 1;
   trim_trailing_newlines(buf);
   char *e_service = field_encode(a->identifier);
@@ -3319,20 +3462,33 @@ static char **split_tabs(char *line, size_t *count_out) {
   return parts;
 }
 
-static int restore_fs_entry(const char *backup_dir, const char *enc_orig, const char *enc_rel) {
-  char *orig = field_decode(enc_orig);
+static int restore_fs_entry(const char *backup_dir, const char *orig_path, const char *enc_rel) {
   char *rel = field_decode(enc_rel);
-  char *src = path_join(backup_dir, rel);
-  int rc = 0;
-  if (path_exists(orig) || path_is_symlink(orig)) {
-    rc = remove_recursive(orig);
+  int rc = 1;
+  char *src = NULL;
+  char *joined = NULL;
+  char *canon_src = NULL;
+
+  if (!rel || !*rel || path_is_absolute_platform(rel)) goto cleanup;
+
+  joined = path_join(backup_dir, rel);
+  canon_src = canonicalish_path(joined, "");
+  if (!canonical_path_is_same_or_within(backup_dir, joined, "")) goto cleanup;
+  src = xstrdup(canon_src);
+
+  rc = 0;
+  if (path_exists(orig_path) || path_is_symlink(orig_path)) {
+    rc = remove_recursive(orig_path);
   }
   if (rc == 0) {
-    rc = copy_tree_recursive(src, orig);
+    rc = copy_tree_recursive(src, orig_path);
   }
-  free(orig);
+
+cleanup:
   free(rel);
   free(src);
+  free(joined);
+  free(canon_src);
   return rc;
 }
 
@@ -3445,6 +3601,13 @@ static bool should_allow_restore_wincred(const char *target, bool allow_unsafe) 
 }
 #endif
 
+static void discard_until_newline(FILE *fp) {
+  int ch = 0;
+  while ((ch = fgetc(fp)) != EOF) {
+    if (ch == '\n') break;
+  }
+}
+
 int restore_from_backup_dir(const char *backup_dir,
                                    bool dry_run,
                                    const char *home,
@@ -3467,6 +3630,13 @@ int restore_from_backup_dir(const char *backup_dir,
 #endif
   while (fgets(line, sizeof(line), fp)) {
     size_t len = strlen(line);
+    if (len == sizeof(line) - 1 && line[len - 1] != '\n' && !feof(fp)) {
+      discard_until_newline(fp);
+      cleanup_results_push(results, "restore", backup_dir, "failed",
+                           "manifest.tsv 包含超长行，已拒绝恢复");
+      failed = 1;
+      break;
+    }
     while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = '\0';
     if (len == 0) continue;
     size_t count = 0;
@@ -3490,16 +3660,19 @@ int restore_from_backup_dir(const char *backup_dir,
     int rc = 1;
     if (strcmp(parts[0], "FS") == 0 && count >= 4) {
       char *orig = field_decode(parts[1]);
-      if (!should_allow_restore_fs_path(orig, home, allow_unsafe_restore)) {
-        cleanup_results_push(results, "filesystem", orig, "failed",
+      char *orig_canon = canonicalish_path(orig, home);
+      if (!should_allow_restore_fs_path(orig_canon, home, allow_unsafe_restore)) {
+        cleanup_results_push(results, "filesystem", orig_canon, "failed",
                              "恢复目标不在允许范围内；如确认可信，可加 --allow-unsafe-restore");
         rc = 1;
       } else {
-        rc = restore_fs_entry(backup_dir, parts[1], parts[2]);
-        cleanup_results_push(results, "filesystem", orig, rc == 0 ? "restored" : "failed",
+        rc = restore_fs_entry(backup_dir, orig_canon, parts[2]);
+        cleanup_results_push(results, "filesystem", orig_canon,
+                             rc == 0 ? "restored" : "failed",
                              rc == 0 ? "已恢复" : "恢复失败");
       }
       free(orig);
+      free(orig_canon);
     } else if (strcmp(parts[0], "MACKEY") == 0 && count >= 3) {
 #ifdef __APPLE__
       char *service = field_decode(parts[1]);

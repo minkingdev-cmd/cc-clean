@@ -59,12 +59,11 @@ function Test-HelpFlags {
 }
 
 function Test-NoSystemCall {
-    $matches = Get-ChildItem -Path $Src -Filter *.c | Select-String -SimpleMatch "system("
-    $hasSystem = (@($matches).Count -gt 0)
-    if ($hasSystem) {
-        throw "source still contains system()"
+    $matches = Get-ChildItem -Path $Src -Filter *.c | Select-String -Pattern '(^|[^_A-Za-z0-9])(system|popen|_popen)\('
+    if (@($matches).Count -gt 0) {
+        throw "source still contains system()/popen()/_popen()"
     }
-    Write-Host "PASS: source does not contain system()"
+    Write-Host "PASS: source does not contain system()/popen()/_popen()"
 }
 
 function Test-PurgeGuard {
@@ -214,6 +213,73 @@ function Test-AllowUnsafePurgeOnTempDir {
         Write-Host "PASS: allow-unsafe-purge works on temp dir"
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-RestoreRejectsDotDotTarget {
+    $homeDir = New-TestDir "ccfgtest-dotdot-home"
+    $backup = New-TestDir "ccbackup-dotdot"
+    $oldUserProfile = $env:USERPROFILE
+    try {
+        $env:USERPROFILE = $homeDir
+        New-Item -ItemType Directory -Path (Join-Path $backup 'files') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $backup 'files\payload.txt') -Value 'payload' -NoNewline
+        $orig = Join-Path $homeDir '.claude\..\escape.txt'
+        Set-Content -LiteralPath (Join-Path $backup 'manifest.tsv') -Value ("VERSION`t2`nFS`t{0}`tfiles/payload.txt`tfile`n" -f $orig) -NoNewline
+
+        $out = & $Bin restore --backup-dir $backup -y 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0) { throw 'dotdot restore target should be rejected' }
+        Assert-Contains $out '恢复目标不在允许范围内' 'dotdot restore target'
+        Assert-NotExists (Join-Path $homeDir 'escape.txt') 'dotdot restore target outside whitelist'
+        Write-Host 'PASS: restore rejects dotdot target'
+    } finally {
+        $env:USERPROFILE = $oldUserProfile
+        Remove-Item -LiteralPath $homeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-RestoreRejectsBackupEscape {
+    $homeDir = New-TestDir 'ccfgtest-backup-escape-home'
+    $backupRoot = New-TestDir 'ccbackup-escape-root'
+    $backup = Join-Path $backupRoot 'backup'
+    $oldUserProfile = $env:USERPROFILE
+    try {
+        $env:USERPROFILE = $homeDir
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $backupRoot 'outside.txt') -Value 'payload' -NoNewline
+        $orig = Join-Path $homeDir '.claude\restore.txt'
+        Set-Content -LiteralPath (Join-Path $backup 'manifest.tsv') -Value ("VERSION`t2`nFS`t{0}`t../outside.txt`tfile`n" -f $orig) -NoNewline
+
+        $out = & $Bin restore --backup-dir $backup -y 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0) { throw 'backup escape rel should be rejected' }
+        Assert-Contains $out '恢复失败' 'backup escape'
+        Assert-NotExists (Join-Path $homeDir '.claude\restore.txt') 'backup escape target'
+        Write-Host 'PASS: restore rejects backup escape rel'
+    } finally {
+        $env:USERPROFILE = $oldUserProfile
+        Remove-Item -LiteralPath $homeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-RestoreRejectsOverlongManifestLine {
+    $homeDir = New-TestDir 'ccfgtest-longline-home'
+    $backup = New-TestDir 'ccbackup-longline'
+    $oldUserProfile = $env:USERPROFILE
+    try {
+        $env:USERPROFILE = $homeDir
+        $longPayload = 'A' * 17000
+        Set-Content -LiteralPath (Join-Path $backup 'manifest.tsv') -Value ("VERSION`t2`nBROKEN`t{0}`n" -f $longPayload) -NoNewline
+
+        $out = & $Bin restore --backup-dir $backup -y 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0) { throw 'overlong manifest line should be rejected' }
+        Assert-Contains $out 'manifest.tsv 包含超长行' 'overlong manifest'
+        Write-Host 'PASS: restore rejects overlong manifest line'
+    } finally {
+        $env:USERPROFILE = $oldUserProfile
+        Remove-Item -LiteralPath $homeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -484,6 +550,9 @@ Test-RestoreJsonOutput
 Test-JsonOutputAndIncludeRelated
 Test-StrictRestoreRemovesExtras
 Test-AllowUnsafePurgeOnTempDir
+Test-RestoreRejectsDotDotTarget
+Test-RestoreRejectsBackupEscape
+Test-RestoreRejectsOverlongManifestLine
 Test-ExtendedRuntimeInstallArtifacts
 Test-ShellIdeAndNpmArtifacts
 Test-WindowsRegistryAndCredentialRoundTrip
