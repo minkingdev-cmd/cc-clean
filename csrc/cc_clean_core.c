@@ -2016,7 +2016,9 @@ static void add_jetbrains_plugin_artifacts(ArtifactList *runtime,
   const char *localappdata = get_env_dup("LOCALAPPDATA");
   char *base1 = appdata ? xstrdup(appdata) : path_join(home, "AppData\\Roaming");
   char *base2 = localappdata ? xstrdup(localappdata) : path_join(home, "AppData\\Local");
-  const char *bases[] = {base1, base2, NULL};
+  char *jb1 = path_join(base1, "JetBrains");
+  char *jb2 = path_join(base2, "JetBrains");
+  const char *bases[] = {base1, base2, jb1, jb2, NULL};
   for (size_t i = 0; bases[i] != NULL; ++i) {
     if (!path_exists(bases[i])) continue;
     char pattern[PATH_MAX_LEN];
@@ -2045,6 +2047,8 @@ static void add_jetbrains_plugin_artifacts(ArtifactList *runtime,
   }
   free(base1);
   free(base2);
+  free(jb1);
+  free(jb2);
 #else
   const char *bases[] = {
       ".config/JetBrains",
@@ -2889,10 +2893,12 @@ static bool is_known_system_path(const char *path, const char *home) {
   char *winds = expand_home("C:\\Windows", home);
   char *pf = expand_home("C:\\Program Files", home);
   char *pfx86 = expand_home("C:\\Program Files (x86)", home);
-  char *users = expand_home("C:\\Users", home);
-  bool bad = path_is_same_or_within(winds, path) || path_is_same_or_within(pf, path) ||
-             path_is_same_or_within(pfx86, path) || path_is_same_or_within(users, path);
-  free(winds); free(pf); free(pfx86); free(users);
+  bool bad = path_is_same_or_within(winds, path) ||
+             path_is_same_or_within(pf, path) ||
+             path_is_same_or_within(pfx86, path);
+  free(winds);
+  free(pf);
+  free(pfx86);
   return bad;
 #else
   const char *roots[] = {"/System", "/Library", "/usr", "/bin", "/etc", "/var",
