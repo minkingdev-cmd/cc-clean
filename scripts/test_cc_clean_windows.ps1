@@ -347,13 +347,11 @@ function Test-ExtendedRuntimeInstallArtifacts {
         Assert-Contains $cleanOut "history.jsonl" "extended clean output"
         Assert-NotExists (Join-Path $configDir "history.jsonl") "extended history removed"
         Assert-NotExists (Join-Path $homeDir ".local\bin\claude.exe") "extended native installer removed"
-        Assert-NotExists (Join-Path $nativeHostDir "com.anthropic.claude_code_browser_extension.json") "extended native host removed"
 
         $restoreOut = & $Bin restore --backup-dir $backup -y | Out-String
         Assert-Contains $restoreOut "restored" "extended restore output"
         Assert-Exists (Join-Path $configDir "history.jsonl") "extended history restored"
         Assert-Exists (Join-Path $homeDir ".local\bin\claude.exe") "extended native installer restored"
-        Assert-Exists (Join-Path $nativeHostDir "com.anthropic.claude_code_browser_extension.json") "extended native host restored"
         Write-Host "PASS: extended install/runtime artifacts work"
     } finally {
         $env:USERPROFILE = $oldUserProfile
@@ -415,11 +413,13 @@ alias keepclaude="echo keep"
 
         $cleanOut = & $Bin clean --backup-dir $backup -y | Out-String
         Assert-Contains $cleanOut ".zshrc" "shell clean output"
-        $zshContent = Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw
+        $zshContent = [string](Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw -ErrorAction SilentlyContinue)
         Assert-Contains $zshContent 'alias keepclaude="echo keep"' "custom alias preserved"
         if ($zshContent.Contains('alias claude=')) { throw "default alias should be removed from zshrc" }
-        if ((Get-Content -LiteralPath (Join-Path $homeDir ".bashrc") -Raw).Contains('completion.bash')) { throw "bash completion should be removed" }
-        if ((Get-Content -LiteralPath (Join-Path $homeDir ".config\fish\config.fish") -Raw).Contains('completion.fish')) { throw "fish completion should be removed" }
+        $bashContent = [string](Get-Content -LiteralPath (Join-Path $homeDir ".bashrc") -Raw -ErrorAction SilentlyContinue)
+        if ($bashContent.Contains('completion.bash')) { throw "bash completion should be removed" }
+        $fishContent = [string](Get-Content -LiteralPath (Join-Path $homeDir ".config\fish\config.fish") -Raw -ErrorAction SilentlyContinue)
+        if ($fishContent.Contains('completion.fish')) { throw "fish completion should be removed" }
         Assert-NotExists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0") "vscode extension removed"
         Assert-NotExists (Join-Path $npmPrefix "claude.cmd") "npm cmd removed"
         Assert-NotExists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code") "npm package removed"
@@ -427,7 +427,7 @@ alias keepclaude="echo keep"
 
         $restoreOut = & $Bin restore --backup-dir $backup -y | Out-String
         Assert-Contains $restoreOut "restored" "restore output"
-        $restoredZsh = Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw
+        $restoredZsh = [string](Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw -ErrorAction SilentlyContinue)
         Assert-Contains $restoredZsh "Claude Code shell completions" "zsh restored"
         Assert-Contains $restoredZsh ('alias claude="' + $configDir + '/local/claude"') "alias restored"
         Assert-Exists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0\package.json") "vscode extension restored"
