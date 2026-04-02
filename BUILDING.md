@@ -16,10 +16,13 @@
 - `README.md`：中文项目说明
 - `README-EN.md`：英文项目说明
 - `CHANGELOG.md`：版本变更记录
+- `CONTRIBUTING.md`：贡献说明
+- `SECURITY.md`：安全策略
 - `scripts/test_cc_clean_posix.sh`：macOS / Linux 回归测试
 - `scripts/test_cc_clean_windows.ps1`：Windows 回归测试
 - `scripts/cc_clean.py`：早期 Python 参考实现
 - `docs/releases/`：版本发布说明
+- `docs/releases/TEMPLATE.md`：新版本发布说明模板
 - `docs/BUILDING.original.md`：从原仓库保留的历史说明
 
 ## 构建
@@ -206,4 +209,12 @@ ctest -L windows-only -V
 - `README.md`：中文使用说明
 - `README-EN.md`：英文使用说明
 - `CHANGELOG.md`：版本变更记录
+- `CONTRIBUTING.md`：贡献说明
+- `SECURITY.md`：安全策略
 - `docs/releases/v0.1.0.md`：当前发布说明
+
+## 自动发布
+
+- `CI` workflow：负责主分支与 PR 的构建、测试
+- `Release` workflow：负责 tag 对应版本的构建、打包、校验和上传
+- 新版本建议先编写 `docs/releases/<tag>.md`，再推送 tag

@@ -58,6 +58,8 @@ cmake --build build
 - 当前版本：<https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.0>
 - 校验文件：`SHA256SUMS.txt`
 
+未来的 tag 发布会由 GitHub Actions 自动构建并上传对应平台资产。
+
 当前 `v0.1.0` 已提供：
 
 - `cc-clean-v0.1.0-macos-arm64.tar.gz`
@@ -125,11 +127,14 @@ ctest -L dangerous -V
 - `scripts/cc_clean.py`：早期 Python 参考实现
 - `docs/BUILDING.original.md`：历史构建说明
 - `docs/releases/`：发布说明
+- `docs/releases/TEMPLATE.md`：新版本发布说明模板
 
 ## 文档
 
 - [构建与测试说明](./BUILDING.md)
 - [变更记录](./CHANGELOG.md)
+- [贡献指南](./CONTRIBUTING.md)
+- [安全策略](./SECURITY.md)
 - [发布说明](./docs/releases/v0.1.0.md)
 
 ## 许可证

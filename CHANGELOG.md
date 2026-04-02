@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 - 补充 `CHANGELOG.md`
 - 统一 README、英文 README、构建文档与发布说明中的下载与使用入口
 - 增加 Release / Changelog 交叉链接，方便源码构建与发布包下载
+- 增加发布自动化 workflow、贡献指南与安全策略
+- 增加发布说明模板，便于后续版本延续发布流程
 
 ## [0.1.0] - 2026-04-02
 

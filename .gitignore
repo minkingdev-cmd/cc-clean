@@ -9,3 +9,9 @@ Testing/
 *.obj
 *.exe
 .DS_Store
+
+dist/
+artifacts/
+*.tar.gz
+*.zip
+*.log

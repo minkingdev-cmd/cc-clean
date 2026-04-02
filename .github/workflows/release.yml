@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to package and publish'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-assets:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set package variables (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux) platform="linux" ;;
+            macOS) platform="macos" ;;
+            *) echo "unsupported runner os: $RUNNER_OS"; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) arch="x86_64" ;;
+            ARM64) arch="aarch64" ;;
+            *) echo "unsupported runner arch: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          echo "CC_CLEAN_PLATFORM=$platform" >> "$GITHUB_ENV"
+          echo "CC_CLEAN_ARCH=$arch" >> "$GITHUB_ENV"
+
+      - name: Set package variables (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          switch ($env:RUNNER_ARCH) {
+            'X64' { $arch = 'x86_64' }
+            'ARM64' { $arch = 'aarch64' }
+            default { throw "unsupported runner arch: $env:RUNNER_ARCH" }
+          }
+          "CC_CLEAN_PLATFORM=windows" >> $env:GITHUB_ENV
+          "CC_CLEAN_ARCH=$arch" >> $env:GITHUB_ENV
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: cmake --build build --parallel
+
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        working-directory: build
+        run: |
+          cmake ..
+          ctest --output-on-failure -j 2
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        working-directory: build
+        shell: pwsh
+        run: |
+          cmake ..
+          ctest -C Release --output-on-failure -j 2
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          fi
+          mkdir -p dist
+          pkg="cc-clean-${tag}-${CC_CLEAN_PLATFORM}-${CC_CLEAN_ARCH}"
+          cp build/cc-clean dist/cc-clean
+          tar -C dist -czf "dist/${pkg}.tar.gz" cc-clean
+          (cd dist && zip -q "${pkg}.zip" cc-clean)
+          rm -f dist/cc-clean
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { '${{ github.event.inputs.tag }}' } else { $env:GITHUB_REF_NAME }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $pkg = "cc-clean-$tag-$env:CC_CLEAN_PLATFORM-$env:CC_CLEAN_ARCH"
+          Copy-Item .\build\Release\cc-clean.exe .\dist\cc-clean.exe -Force
+          Compress-Archive -Path .\dist\cc-clean.exe -DestinationPath ".\dist\$pkg.zip" -Force
+          Remove-Item .\dist\cc-clean.exe -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ env.CC_CLEAN_PLATFORM }}-${{ env.CC_CLEAN_ARCH }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish release assets
+    needs: build-release-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: collected
+          merge-multiple: true
+
+      - name: Resolve tag and release notes
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          notes_file="docs/releases/${tag}.md"
+          if [ -f "$notes_file" ]; then
+            cp "$notes_file" release-notes.md
+          else
+            printf '# %s\n\nAutomated release build for %s.\n' "$tag" "$tag" > release-notes.md
+          fi
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='${{ steps.meta.outputs.tag }}'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --notes-file release-notes.md
+          fi
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd collected
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Upload assets to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload '${{ steps.meta.outputs.tag }}' collected/* --repo "$GITHUB_REPOSITORY" --clobber

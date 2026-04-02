@@ -58,6 +58,8 @@ The executable is typically located at:
 - Current version: <https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.0>
 - Checksum file: `SHA256SUMS.txt`
 
+Future tag releases are built and uploaded automatically by GitHub Actions.
+
 `v0.1.0` currently includes:
 
 - `cc-clean-v0.1.0-macos-arm64.tar.gz`
@@ -126,11 +128,14 @@ ctest -L dangerous -V
 - `scripts/cc_clean.py`: earlier Python reference implementation
 - `docs/BUILDING.original.md`: preserved historical build note
 - `docs/releases/`: release notes
+- `docs/releases/TEMPLATE.md`: release note template for new versions
 
 ## Docs
 
 - [Build and test guide](./BUILDING.md)
 - [Changelog](./CHANGELOG.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Security policy](./SECURITY.md)
 - [Release notes](./docs/releases/v0.1.0.md)
 
 ## License
