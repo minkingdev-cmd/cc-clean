@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - 增加 Release / Changelog 交叉链接，方便源码构建与发布包下载
 - 增加发布自动化 workflow、贡献指南与安全策略
 - 增加发布说明模板，便于后续版本延续发布流程
+- 验证并启用自动发布流程，统一 v0.1.0 现有发布资产命名
 
 ## [0.1.0] - 2026-04-02
 

@@ -62,8 +62,11 @@ Future tag releases are built and uploaded automatically by GitHub Actions.
 
 `v0.1.0` currently includes:
 
-- `cc-clean-v0.1.0-macos-arm64.tar.gz`
-- `cc-clean-v0.1.0-macos-arm64.zip`
+- `cc-clean-v0.1.0-linux-x86_64.tar.gz`
+- `cc-clean-v0.1.0-linux-x86_64.zip`
+- `cc-clean-v0.1.0-macos-aarch64.tar.gz`
+- `cc-clean-v0.1.0-macos-aarch64.zip`
+- `cc-clean-v0.1.0-windows-x86_64.zip`
 - `SHA256SUMS.txt`
 
 ## Usage examples
