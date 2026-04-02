@@ -1,6 +1,9 @@
 # cc-clean
 
 [![CI](https://github.com/minkingdev-cmd/cc-clean/actions/workflows/ci.yml/badge.svg)](https://github.com/minkingdev-cmd/cc-clean/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/minkingdev-cmd/cc-clean)](https://github.com/minkingdev-cmd/cc-clean/releases)
+
+中文 | [English](./README-EN.md)
 
 `cc-clean` 是一个用于**彻底卸载 Claude Code** 的跨平台清理工具。
 
@@ -51,7 +54,11 @@ cmake --build build
 
 ### 从 Release 下载
 
-仓库 Release 页面会提供预编译附件。当前 `v0.1.0` 已提供：
+- Release 页面：<https://github.com/minkingdev-cmd/cc-clean/releases>
+- 当前版本：<https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.0>
+- 校验文件：`SHA256SUMS.txt`
+
+当前 `v0.1.0` 已提供：
 
 - `cc-clean-v0.1.0-macos-arm64.tar.gz`
 - `cc-clean-v0.1.0-macos-arm64.zip`
@@ -111,6 +118,7 @@ ctest -L dangerous -V
 - `csrc/cc_clean_main.c / cc_clean_cli.c / cc_clean_core.c / cc_clean_report.c`：C 主程序
 - `CMakeLists.txt`：跨平台构建配置
 - `BUILDING.md`：构建、测试与 CTest 说明
+- `CHANGELOG.md`：版本变更记录
 - `LICENSE`：许可证
 - `scripts/test_cc_clean_posix.sh`：macOS / Linux 回归测试
 - `scripts/test_cc_clean_windows.ps1`：Windows 回归测试
@@ -118,12 +126,12 @@ ctest -L dangerous -V
 - `docs/BUILDING.original.md`：历史构建说明
 - `docs/releases/`：发布说明
 
+## 文档
+
+- [构建与测试说明](./BUILDING.md)
+- [变更记录](./CHANGELOG.md)
+- [发布说明](./docs/releases/v0.1.0.md)
+
 ## 许可证
 
 本项目基于 MIT License 发布。
-
-## 更多说明
-
-详见：
-
-- `BUILDING.md`

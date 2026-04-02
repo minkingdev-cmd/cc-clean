@@ -15,6 +15,7 @@
 - `CMakeLists.txt`：跨平台构建配置
 - `README.md`：中文项目说明
 - `README-EN.md`：英文项目说明
+- `CHANGELOG.md`：版本变更记录
 - `scripts/test_cc_clean_posix.sh`：macOS / Linux 回归测试
 - `scripts/test_cc_clean_windows.ps1`：Windows 回归测试
 - `scripts/cc_clean.py`：早期 Python 参考实现
@@ -199,3 +200,10 @@ ctest -L windows-only -V
 - 建议在 `build/` 目录中先执行一次 `cmake ..`，再运行 `ctest`
 - Windows 注册表 / Credential Manager 专项测试适合在测试环境执行
 - 卸载与恢复相关测试已经针对共享状态做了串行化处理
+
+## 相关文档
+
+- `README.md`：中文使用说明
+- `README-EN.md`：英文使用说明
+- `CHANGELOG.md`：版本变更记录
+- `docs/releases/v0.1.0.md`：当前发布说明

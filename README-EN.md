@@ -1,6 +1,9 @@
 # cc-clean
 
 [![CI](https://github.com/minkingdev-cmd/cc-clean/actions/workflows/ci.yml/badge.svg)](https://github.com/minkingdev-cmd/cc-clean/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/minkingdev-cmd/cc-clean)](https://github.com/minkingdev-cmd/cc-clean/releases)
+
+[中文](./README.md) | English
 
 `cc-clean` is a cross-platform cleanup utility for **fully uninstalling Claude Code**.
 
@@ -51,7 +54,11 @@ The executable is typically located at:
 
 ### Download from Release
 
-The Release page provides prebuilt assets. `v0.1.0` currently includes:
+- Releases page: <https://github.com/minkingdev-cmd/cc-clean/releases>
+- Current version: <https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.0>
+- Checksum file: `SHA256SUMS.txt`
+
+`v0.1.0` currently includes:
 
 - `cc-clean-v0.1.0-macos-arm64.tar.gz`
 - `cc-clean-v0.1.0-macos-arm64.zip`
@@ -111,6 +118,7 @@ ctest -L dangerous -V
 - `csrc/cc_clean_main.c / cc_clean_cli.c / cc_clean_core.c / cc_clean_report.c`: main C implementation
 - `CMakeLists.txt`: cross-platform build configuration
 - `BUILDING.md`: build, test, and CTest usage notes
+- `CHANGELOG.md`: project change log
 - `README.md`: Chinese project overview
 - `LICENSE`: project license
 - `scripts/test_cc_clean_posix.sh`: macOS / Linux regression tests
@@ -118,6 +126,12 @@ ctest -L dangerous -V
 - `scripts/cc_clean.py`: earlier Python reference implementation
 - `docs/BUILDING.original.md`: preserved historical build note
 - `docs/releases/`: release notes
+
+## Docs
+
+- [Build and test guide](./BUILDING.md)
+- [Changelog](./CHANGELOG.md)
+- [Release notes](./docs/releases/v0.1.0.md)
 
 ## License
 
