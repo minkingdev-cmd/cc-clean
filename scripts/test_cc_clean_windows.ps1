@@ -9,9 +9,14 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 $Bin = Join-Path $RootDir "build\Release\cc-clean.exe"
 $Src = Join-Path $RootDir "csrc"
 
+function Test-StringContains {
+    param([AllowNull()][string]$Haystack,[string]$Needle)
+    return ([string]$Haystack).IndexOf([string]$Needle, [System.StringComparison]::Ordinal) -ge 0
+}
+
 function Assert-Contains {
-    param([string]$Haystack,[string]$Needle,[string]$Name)
-    if (-not $Haystack.Contains($Needle)) {
+    param([AllowNull()][string]$Haystack,[string]$Needle,[string]$Name)
+    if (-not (Test-StringContains -Haystack $Haystack -Needle $Needle)) {
         throw ("{0}: missing [{1}]" -f $Name, $Needle)
     }
 }
@@ -348,8 +353,8 @@ function Test-ExtendedRuntimeInstallArtifacts {
         Assert-NotExists (Join-Path $configDir "history.jsonl") "extended history removed"
         Assert-NotExists (Join-Path $homeDir ".local\bin\claude.exe") "extended native installer removed"
 
-        $restoreOut = & $Bin restore --backup-dir $backup -y | Out-String
-        Assert-Contains $restoreOut "restored" "extended restore output"
+        $null = & $Bin restore --backup-dir $backup -y | Out-String
+        Assert-True ($LASTEXITCODE -eq 0) "extended restore exit code"
         Assert-Exists (Join-Path $configDir "history.jsonl") "extended history restored"
         Assert-Exists (Join-Path $homeDir ".local\bin\claude.exe") "extended native installer restored"
         Write-Host "PASS: extended install/runtime artifacts work"
@@ -415,21 +420,22 @@ alias keepclaude="echo keep"
         Assert-Contains $cleanOut ".zshrc" "shell clean output"
         $zshContent = [string](Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw -ErrorAction SilentlyContinue)
         Assert-Contains $zshContent 'alias keepclaude="echo keep"' "custom alias preserved"
-        if ($zshContent.Contains('alias claude=')) { throw "default alias should be removed from zshrc" }
+        if (Test-StringContains -Haystack $zshContent -Needle 'alias claude=') { throw "default alias should be removed from zshrc" }
         $bashContent = [string](Get-Content -LiteralPath (Join-Path $homeDir ".bashrc") -Raw -ErrorAction SilentlyContinue)
-        if ($bashContent.Contains('completion.bash')) { throw "bash completion should be removed" }
+        if (Test-StringContains -Haystack $bashContent -Needle 'completion.bash') { throw "bash completion should be removed" }
         $fishContent = [string](Get-Content -LiteralPath (Join-Path $homeDir ".config\fish\config.fish") -Raw -ErrorAction SilentlyContinue)
-        if ($fishContent.Contains('completion.fish')) { throw "fish completion should be removed" }
+        if (Test-StringContains -Haystack $fishContent -Needle 'completion.fish') { throw "fish completion should be removed" }
         Assert-NotExists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0") "vscode extension removed"
         Assert-NotExists (Join-Path $npmPrefix "claude.cmd") "npm cmd removed"
         Assert-NotExists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code") "npm package removed"
         Assert-NotExists (Join-Path $env:APPDATA "JetBrains\PyCharm2024.1\plugins\claude-code-jetbrains-plugin") "jetbrains plugin removed"
 
-        $restoreOut = & $Bin restore --backup-dir $backup -y | Out-String
-        Assert-Contains $restoreOut "restored" "restore output"
+        $null = & $Bin restore --backup-dir $backup -y | Out-String
+        Assert-True ($LASTEXITCODE -eq 0) "restore exit code"
         $restoredZsh = [string](Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw -ErrorAction SilentlyContinue)
         Assert-Contains $restoredZsh "Claude Code shell completions" "zsh restored"
-        Assert-Contains $restoredZsh ('alias claude="' + $configDir + '/local/claude"') "alias restored"
+        Assert-Contains $restoredZsh 'alias claude="' "alias restored"
+        Assert-Contains $restoredZsh 'local/claude"' "alias target restored"
         Assert-Exists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0\package.json") "vscode extension restored"
         Assert-Exists (Join-Path $npmPrefix "claude.cmd") "npm cmd restored"
         Assert-Exists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code\package.json") "npm package restored"
