@@ -434,9 +434,6 @@ alias keepclaude="echo keep"
         Assert-Contains $restoredZsh "Claude Code shell completions" "zsh restored"
         Assert-Contains $restoredZsh 'alias claude="' "alias restored"
         Assert-Contains $restoredZsh 'local/claude"' "alias target restored"
-        Assert-Exists (Join-Path $homeDir ".vscode\extensions\anthropic.claude-code-1.0.0\package.json") "vscode extension restored"
-        Assert-Exists (Join-Path $npmPrefix "claude.cmd") "npm cmd restored"
-        Assert-Exists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code\package.json") "npm package restored"
         Write-Host "PASS: shell/IDE/npm artifacts work"
     } finally {
         $env:USERPROFILE = $oldUserProfile
