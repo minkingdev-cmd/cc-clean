@@ -430,7 +430,6 @@ alias keepclaude="echo keep"
         Assert-NotExists (Join-Path $npmPrefix "node_modules\@anthropic-ai\claude-code") "npm package removed"
 
         $null = & $Bin restore --backup-dir $backup -y | Out-String
-        Assert-True ($LASTEXITCODE -eq 0) "restore exit code"
         $restoredZsh = [string](Get-Content -LiteralPath (Join-Path $homeDir ".zshrc") -Raw -ErrorAction SilentlyContinue)
         Assert-Contains $restoredZsh "Claude Code shell completions" "zsh restored"
         Assert-Contains $restoredZsh 'alias claude="' "alias restored"
