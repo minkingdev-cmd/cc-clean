@@ -28,16 +28,15 @@ It scans, backs up, removes, and restores Claude Code related local data and pla
 - Windows
 - x86_64 / aarch64
 
-## Typical use cases
+## Recommended workflow
 
-- Check whether Claude Code leftovers still exist on a machine
-- Perform a full Claude Code cleanup
-- Restore content after cleanup if needed
-- Integrate uninstall and cleanup workflows into automation scripts
+1. Run `check` to inspect local leftovers
+2. Run `clean --backup-dir <dir>` to back up and remove them
+3. Run `restore --backup-dir <dir>` when rollback is needed
 
-## Quick start
+## Get the tool
 
-### Build
+### Build from source
 
 ```bash
 cmake -S . -B build
@@ -49,6 +48,16 @@ The executable is typically located at:
 ```bash
 ./build/cc-clean
 ```
+
+### Download from Release
+
+The Release page provides prebuilt assets. `v0.1.0` currently includes:
+
+- `cc-clean-v0.1.0-macos-arm64.tar.gz`
+- `cc-clean-v0.1.0-macos-arm64.zip`
+- `SHA256SUMS.txt`
+
+## Usage examples
 
 ### Check leftovers
 

@@ -28,16 +28,15 @@
 - Windows
 - x86_64 / aarch64
 
-## 使用场景
+## 推荐流程
 
-- 卸载 Claude Code 前检查本机残留
-- 执行 Claude Code 全量清理
-- 在清理后恢复误删内容
-- 在自动化环境中批量执行卸载与清理任务
+1. 先执行 `check` 查看本机残留
+2. 执行 `clean --backup-dir <目录>` 进行备份和清理
+3. 如需回滚，执行 `restore --backup-dir <目录>`
 
-## 快速开始
+## 获取程序
 
-### 构建
+### 从源码构建
 
 ```bash
 cmake -S . -B build
@@ -49,6 +48,16 @@ cmake --build build
 ```bash
 ./build/cc-clean
 ```
+
+### 从 Release 下载
+
+仓库 Release 页面会提供预编译附件。当前 `v0.1.0` 已提供：
+
+- `cc-clean-v0.1.0-macos-arm64.tar.gz`
+- `cc-clean-v0.1.0-macos-arm64.zip`
+- `SHA256SUMS.txt`
+
+## 使用示例
 
 ### 检查残留
 
