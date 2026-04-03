@@ -16,28 +16,28 @@ function Assert-Contains {
         [string]$Name
     )
     if (-not $Haystack.Contains($Needle)) {
-        throw "$Name: 未包含 [$Needle]"
+        throw "${Name}: 未包含 [$Needle]"
     }
 }
 
 function Assert-Exists {
     param([string]$PathValue, [string]$Name)
     if (-not (Test-Path -LiteralPath $PathValue)) {
-        throw "$Name: 不存在 $PathValue"
+        throw "${Name}: 不存在 $PathValue"
     }
 }
 
 function Assert-NotExists {
     param([string]$PathValue, [string]$Name)
     if (Test-Path -LiteralPath $PathValue) {
-        throw "$Name: 仍存在 $PathValue"
+        throw "${Name}: 仍存在 $PathValue"
     }
 }
 
 function Assert-True {
     param([bool]$Condition, [string]$Name)
     if (-not $Condition) {
-        throw "$Name: 断言失败"
+        throw "${Name}: 断言失败"
     }
 }
 
