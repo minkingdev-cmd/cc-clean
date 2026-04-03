@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-03
+
+### Added
+- 新增 `clean --purge-all`，用于清理当前机器上所有已知的 Claude Code 痕迹
+- 新增 `purge-all` 强制确认机制：即使传入 `-y`，也必须手动输入 `PURGE-ALL`
+- 为 `purge-all` 增加 POSIX / Windows 回归测试与对应 `ctest` 入口
+
 ### Fixed
 - 修复 `restore` 安全校验：阻止 `..` 绕过目标路径白名单
 - 修复备份源路径校验：阻止恢复时通过相对路径逃逸 `backup_dir`
@@ -26,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - 增加发布自动化 workflow、贡献指南与安全策略
 - 增加发布说明模板，便于后续版本延续发布流程
 - 验证并启用自动发布流程，统一 v0.1.0 现有发布资产命名
+- 增补 `--purge-all` 的中英文使用说明
 
 ## [0.1.0] - 2026-04-02
 
