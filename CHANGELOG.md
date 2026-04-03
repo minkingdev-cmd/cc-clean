@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-03
+
+### Fixed
+- 修复 Windows 下 `purge-all` 严格确认回归用例，避免测试期间被备份目录提示干扰
+
 ## [0.1.1] - 2026-04-03
 
 ### Added
