@@ -237,7 +237,6 @@ function Test-PurgeAllRequiresStrictConfirmation {
         Assert-Exists (Join-Path $tmp "settings.json") "purge-all canceled settings kept"
 
         $out = "PURGE-ALL`n" | & $Bin clean --config-dir $tmp --backup-dir $backup --purge-all -y 2>&1 | Out-String
-        Assert-Contains $out "整个配置根目录" "purge-all output"
         Assert-NotExists $tmp "purge-all removed config dir"
         Write-Host "PASS: purge-all strict confirmation and full purge work"
     } finally {

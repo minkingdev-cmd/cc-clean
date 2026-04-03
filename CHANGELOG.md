@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-04-03
+
+### Fixed
+- 修复 Windows 下 `purge-all` 发布回归中的输出断言编码问题，改为只校验严格确认与实际删除结果
+
 ## [0.1.3] - 2026-04-03
 
 ### Fixed
