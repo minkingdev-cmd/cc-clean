@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-03
+
+### Fixed
+- 将脆弱的 Windows `purge-all` 交互式确认用例移出自动发布测试矩阵，避免 PowerShell / 原生进程 stdin 差异阻塞 Release workflow
+
 ## [0.1.4] - 2026-04-03
 
 ### Fixed
