@@ -5,6 +5,7 @@
 static void print_usage(const char *prog) {
   printf("用法: %s [check|clean|restore] [选项]\n", prog);
   printf("选项:\n");
+  printf("  --purge-all              清理所有已知 Claude Code 痕迹（强制二次确认）\n");
   printf("  --config-dir <dir>       指定配置根目录\n");
   printf("  --backup-dir <dir>       指定备份目录（clean/restore）\n");
   printf("  --include-related        清理 settings/agents/agents.backup.*\n");
@@ -15,6 +16,22 @@ static void print_usage(const char *prog) {
   printf("  -y, --yes                跳过确认\n");
   printf("  --json                   输出 JSON\n");
   printf("  -h, --help               显示帮助\n");
+}
+
+static bool confirm_purge_all(void) {
+  char buf[64];
+  printf("即将执行 purge-all：这会删除当前机器上所有已知的 Claude Code 痕迹，包括配置、缓存、日志、历史、安装残留、shell/浏览器/IDE 集成及系统级项目。\n");
+  printf("此操作不会因为 -y/--yes 而跳过确认。\n");
+  printf("请输入 PURGE-ALL 继续：");
+  fflush(stdout);
+  if (!fgets(buf, sizeof(buf), stdin)) {
+    return false;
+  }
+  size_t len = strlen(buf);
+  while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+    buf[--len] = '\0';
+  }
+  return strcmp(buf, "PURGE-ALL") == 0;
 }
 
 static Options parse_args(int argc, char **argv) {
@@ -34,6 +51,10 @@ static Options parse_args(int argc, char **argv) {
     } else if (strcmp(arg, "restore") == 0) {
       opt.action_clean = false;
       opt.action_restore = true;
+    } else if (strcmp(arg, "--purge-all") == 0) {
+      opt.purge_all = true;
+      opt.include_related = true;
+      opt.purge_config_home = true;
     } else if (strcmp(arg, "--include-related") == 0) {
       opt.include_related = true;
     } else if (strcmp(arg, "--purge-config-home") == 0) {
@@ -153,7 +174,7 @@ int cc_clean_run(int argc, char **argv) {
   }
 
   ArtifactList targets;
-  if (opt.purge_config_home &&
+  if (opt.purge_config_home && !opt.purge_all &&
       !is_safe_purge_target_path(config_home, home) &&
       !opt.allow_unsafe_purge) {
     fprintf(stderr,
@@ -167,12 +188,14 @@ int cc_clean_run(int argc, char **argv) {
     free(opt.backup_dir);
     return 2;
   }
-  build_cleanup_targets(&runtime, &related, opt.include_related,
+  build_cleanup_targets(&runtime, &related, opt.purge_all, opt.include_related,
                         opt.purge_config_home, config_home, home, &targets);
 
   if (!opt.json) {
     print_report_text(config_home, home, &runtime, &related);
-    print_cleanup_plan(&targets, opt.dry_run);
+    if (!(opt.purge_all && !opt.dry_run)) {
+      print_cleanup_plan(&targets, opt.dry_run);
+    }
     printf("\n");
   }
 
@@ -192,7 +215,26 @@ int cc_clean_run(int argc, char **argv) {
     return 0;
   }
 
-  if (!opt.dry_run && !opt.yes) {
+  if (!opt.dry_run && opt.purge_all) {
+    if (!opt.json) {
+      printf("== purge-all 强制确认 ==\n");
+      print_cleanup_plan(&targets, false);
+      printf("\n");
+    }
+    if (!confirm_purge_all()) {
+      if (!opt.json) {
+        printf("已取消。\n");
+      }
+      artifact_list_free(&targets);
+      artifact_list_free(&runtime);
+      artifact_list_free(&related);
+      free(home);
+      free(config_home);
+      free(opt.config_dir);
+      free(opt.backup_dir);
+      return 1;
+    }
+  } else if (!opt.dry_run && !opt.yes) {
     const char *warn = "将执行保守清理，是否继续？";
     if (opt.include_related) {
       warn = "将执行扩展清理（包含用户相关配置），是否继续？";

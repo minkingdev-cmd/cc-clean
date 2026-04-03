@@ -61,6 +61,7 @@ typedef struct {
 typedef struct {
   bool action_clean;
   bool action_restore;
+  bool purge_all;
   bool include_related;
   bool purge_config_home;
   bool allow_unsafe_purge;
@@ -118,6 +119,7 @@ void collect_artifacts(const char *home,
                        ArtifactList *related);
 void build_cleanup_targets(const ArtifactList *runtime,
                            const ArtifactList *related,
+                           bool purge_all,
                            bool include_related,
                            bool purge_config_home,
                            const char *config_home,

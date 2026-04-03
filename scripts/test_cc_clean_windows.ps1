@@ -58,6 +58,7 @@ function New-TestDir {
 
 function Test-HelpFlags {
     $out = & $Bin --help | Out-String
+    Assert-Contains $out "--purge-all" "help output"
     Assert-Contains $out "--allow-unsafe-purge" "help output"
     Assert-Contains $out "--allow-unsafe-restore" "help output"
     Write-Host "PASS: help output contains unsafe flags"
@@ -216,6 +217,30 @@ function Test-AllowUnsafePurgeOnTempDir {
         if ($LASTEXITCODE -ne 0) { throw 'unsafe purge should succeed' }
         Assert-NotExists $tmp "unsafe purge removed dir"
         Write-Host "PASS: allow-unsafe-purge works on temp dir"
+    } finally {
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-PurgeAllRequiresStrictConfirmation {
+    $tmp = New-TestDir "ccfgtest-purgeall"
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $tmp "agents") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmp "projects") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $tmp "settings.json") -Value "{}" -NoNewline
+        Set-Content -LiteralPath (Join-Path $tmp ".credentials.json") -Value "secret" -NoNewline
+        Set-Content -LiteralPath (Join-Path $tmp "agents\a.txt") -Value "agent" -NoNewline
+
+        $out = "y`n" | & $Bin clean --config-dir $tmp --purge-all -y 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0) { throw 'purge-all should cancel on wrong confirmation phrase' }
+        Assert-Contains $out "PURGE-ALL" "purge-all strict confirmation prompt"
+        Assert-Exists (Join-Path $tmp "settings.json") "purge-all canceled settings kept"
+
+        $out = "PURGE-ALL`n" | & $Bin clean --config-dir $tmp --purge-all -y 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw 'purge-all should succeed with strict confirmation phrase' }
+        Assert-Contains $out "整个配置根目录" "purge-all output"
+        Assert-NotExists $tmp "purge-all removed config dir"
+        Write-Host "PASS: purge-all strict confirmation and full purge work"
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -533,6 +558,7 @@ Test-RestoreJsonOutput
 Test-JsonOutputAndIncludeRelated
 Test-StrictRestoreRemovesExtras
 Test-AllowUnsafePurgeOnTempDir
+Test-PurgeAllRequiresStrictConfirmation
 Test-RestoreRejectsDotDotTarget
 Test-RestoreRejectsBackupEscape
 Test-RestoreRejectsOverlongManifestLine

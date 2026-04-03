@@ -3156,29 +3156,32 @@ static bool artifact_list_contains(const ArtifactList *list, const Artifact *a) 
 }
 
 void build_cleanup_targets(const ArtifactList *runtime,
-                                  const ArtifactList *related,
-                                  bool include_related,
-                                  bool purge_config_home,
-                                  const char *config_home,
-                                  const char *home,
-                                  ArtifactList *targets) {
+                           const ArtifactList *related,
+                           bool purge_all,
+                           bool include_related,
+                           bool purge_config_home,
+                           const char *config_home,
+                           const char *home,
+                           ArtifactList *targets) {
   artifact_list_init(targets);
   char *config_home_tilde = tilde_path(config_home, home);
 
   for (size_t i = 0; i < runtime->len; ++i) {
     const Artifact *a = &runtime->items[i];
-    if (a->exists && a->safe_clean && !artifact_list_contains(targets, a)) {
+    if (a->exists && (purge_all || a->safe_clean) && !artifact_list_contains(targets, a)) {
       artifact_list_push(targets, make_artifact(a->kind, a->identifier, a->exists,
                                                 a->confidence, a->safe_clean, a->note));
     }
   }
 
-  if (include_related) {
+  if (include_related || purge_all) {
     for (size_t i = 0; i < related->len; ++i) {
       const Artifact *a = &related->items[i];
       if (a->exists && strcmp(a->identifier, config_home_tilde) != 0 &&
           !artifact_list_contains(targets, a)) {
-        char *note = str_printf("%s（用户显式要求 include-related）", a->note);
+        const char *reason = purge_all ? "用户显式要求 purge-all"
+                                       : "用户显式要求 include-related";
+        char *note = str_printf("%s（%s）", a->note, reason);
         artifact_list_push(targets, make_artifact(a->kind, a->identifier, a->exists,
                                                   a->confidence, true, note));
         free(note);

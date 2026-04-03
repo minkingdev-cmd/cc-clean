@@ -62,6 +62,7 @@ build_if_needed() {
 test_help_flags() {
   local out
   out="$($BIN --help)"
+  assert_contains "$out" "--purge-all" "帮助输出"
   assert_contains "$out" "--allow-unsafe-purge" "帮助输出"
   assert_contains "$out" "--allow-unsafe-restore" "帮助输出"
   pass "帮助输出包含危险开关"
@@ -199,6 +200,28 @@ test_allow_unsafe_purge_on_temp_dir() {
   assert_contains "$out" "整个配置根目录" "unsafe purge 输出"
   assert_file_not_exists "$tmpdir" "unsafe purge 删除目录"
   pass "allow-unsafe-purge 临时目录回归通过"
+}
+
+test_purge_all_requires_strict_confirmation() {
+  local tmpdir out rc
+  tmpdir="$(mktemp -d /tmp/ccfgtest.purgeall.XXXXXX)"
+  mkdir -p "$tmpdir/agents" "$tmpdir/projects"
+  printf '{}' >"$tmpdir/settings.json"
+  printf 'secret' >"$tmpdir/.credentials.json"
+  printf 'agent' >"$tmpdir/agents/a.txt"
+
+  set +e
+  out="$(printf 'y\n' | $BIN clean --config-dir "$tmpdir" --purge-all -y 2>&1)"
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || fail "purge-all 输入错误确认词时应取消"
+  assert_contains "$out" "请输入 PURGE-ALL 继续" "purge-all 强制确认提示"
+  assert_file_exists "$tmpdir/settings.json" "purge-all 取消后 settings 保留"
+
+  out="$(printf 'PURGE-ALL\n' | $BIN clean --config-dir "$tmpdir" --purge-all -y 2>&1)"
+  assert_contains "$out" "整个配置根目录" "purge-all 输出"
+  assert_file_not_exists "$tmpdir" "purge-all 删除整个配置目录"
+  pass "purge-all 强制确认与全量清理通过"
 }
 
 test_restore_rejects_dotdot_target() {
@@ -462,6 +485,7 @@ main() {
   test_json_output_and_include_related
   test_strict_restore_removes_extras
   test_allow_unsafe_purge_on_temp_dir
+  test_purge_all_requires_strict_confirmation
   test_restore_rejects_dotdot_target
   test_restore_rejects_backup_escape
   test_restore_rejects_overlong_manifest_line

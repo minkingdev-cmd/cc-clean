@@ -91,6 +91,19 @@ The current source tree also covers more uninstall leftovers, including local in
 ./build/cc-clean clean --backup-dir ./backup -y
 ```
 
+### Purge all known Claude Code traces
+
+```bash
+./build/cc-clean clean --purge-all
+```
+
+Notes:
+
+- `--purge-all` removes all known Claude Code traces, including config, cache, logs, history, install leftovers, shell/browser/IDE integrations, and system-level items
+- `--purge-all` does not require an extra `--allow-unsafe-purge`
+- even with `-y`, execution still requires reviewing the plan and manually typing `PURGE-ALL`
+- use `--dry-run` first if you only want to inspect the plan
+
 ### Restore from backup
 
 ```bash

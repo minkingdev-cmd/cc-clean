@@ -91,6 +91,19 @@ cmake --build build
 ./build/cc-clean clean --backup-dir ./backup -y
 ```
 
+### 全量清理所有已知 Claude Code 痕迹
+
+```bash
+./build/cc-clean clean --purge-all
+```
+
+说明：
+
+- `--purge-all` 会清理所有已知的 Claude Code 痕迹，包括配置、缓存、日志、历史、安装残留、shell / 浏览器 / IDE 集成及系统级项目
+- `--purge-all` 不需要额外传 `--allow-unsafe-purge`
+- 即使传入 `-y`，也仍然必须先查看删除计划并手动输入 `PURGE-ALL` 才会真正执行
+- 可先使用 `--dry-run` 仅查看计划
+
 ### 从备份恢复
 
 ```bash
