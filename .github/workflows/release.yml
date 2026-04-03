@@ -1,0 +1,104 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and publish, for example v0.1.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs_on: ubuntu-latest
+          - name: macos-x64
+            runs_on: macos-13
+          - name: macos-arm64
+            runs_on: macos-14
+          - name: windows-x64
+            runs_on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build-cc-clean
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: cmake --build build-cc-clean --config Release
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake -S . -B build-cc-clean
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake --build build-cc-clean --config Release
+
+      - name: Test (Unix)
+        if: runner.os != 'Windows'
+        run: cd build-cc-clean && ctest --output-on-failure
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cd build-cc-clean && ctest --output-on-failure -C Release
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        env:
+          PACKAGE_NAME: cc-clean-${{ env.RELEASE_TAG }}-${{ matrix.name }}
+        run: |
+          mkdir -p release/$PACKAGE_NAME
+          cp build-cc-clean/cc-clean release/$PACKAGE_NAME/
+          cp README.md BUILDING.md release/$PACKAGE_NAME/
+          tar -C release -czf release/$PACKAGE_NAME.tar.gz $PACKAGE_NAME
+          shasum -a 256 release/$PACKAGE_NAME.tar.gz > release/$PACKAGE_NAME.tar.gz.sha256
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PACKAGE_NAME: cc-clean-${{ env.RELEASE_TAG }}-${{ matrix.name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path "release/$env:PACKAGE_NAME" | Out-Null
+          Copy-Item "build-cc-clean/Release/cc-clean.exe" "release/$env:PACKAGE_NAME/cc-clean.exe"
+          Copy-Item README.md "release/$env:PACKAGE_NAME/README.md"
+          Copy-Item BUILDING.md "release/$env:PACKAGE_NAME/BUILDING.md"
+          Compress-Archive -Path "release/$env:PACKAGE_NAME/*" -DestinationPath "release/$env:PACKAGE_NAME.zip" -Force
+          $hash = (Get-FileHash "release/$env:PACKAGE_NAME.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "release/$env:PACKAGE_NAME.zip.sha256" -Value "$hash *$env:PACKAGE_NAME.zip"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            release/*.tar.gz
+            release/*.tar.gz.sha256
+            release/*.zip
+            release/*.zip.sha256
+          generate_release_notes: true

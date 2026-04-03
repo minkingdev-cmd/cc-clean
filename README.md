@@ -79,6 +79,21 @@ cmake --build build-cc-clean
 --allow-unsafe-purge
 ```
 
+## 自动发布
+
+仓库已内置 GitHub Actions 发布流程：
+
+- 触发方式：推送 `v*` tag，或手动执行 `release` workflow
+- 自动动作：构建、测试、打包、计算 SHA256、创建/更新 GitHub Release
+- 当前产物平台：`linux-x64`、`macos-x64`、`macos-arm64`、`windows-x64`
+
+示例：
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
 ## 测试
 
 POSIX 回归：

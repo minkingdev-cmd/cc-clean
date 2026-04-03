@@ -58,7 +58,33 @@ cd build-cc-clean
 ctest -L docker --output-on-failure
 ```
 
-## 5. 常用清理命令
+## 5. GitHub Actions 发布
+
+仓库内置：`.github/workflows/release.yml`
+
+触发方式：
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+workflow 会自动：
+
+- 在 GitHub runner 上构建 `cc-clean`
+- 执行测试
+- 打包下载文件
+- 生成 `.sha256` 校验文件
+- 创建或更新对应 GitHub Release
+
+默认产物平台：
+
+- `linux-x64`
+- `macos-x64`
+- `macos-arm64`
+- `windows-x64`
+
+## 6. 常用清理命令
 
 默认清理：
 
