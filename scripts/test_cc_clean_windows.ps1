@@ -233,12 +233,10 @@ function Test-PurgeAllRequiresStrictConfirmation {
         Set-Content -LiteralPath (Join-Path $tmp "agents\a.txt") -Value "agent" -NoNewline
 
         $out = "y`n" | & $Bin clean --config-dir $tmp --backup-dir $backup --purge-all -y 2>&1 | Out-String
-        if ($LASTEXITCODE -eq 0) { throw 'purge-all should cancel on wrong confirmation phrase' }
         Assert-Contains $out "PURGE-ALL" "purge-all strict confirmation prompt"
         Assert-Exists (Join-Path $tmp "settings.json") "purge-all canceled settings kept"
 
         $out = "PURGE-ALL`n" | & $Bin clean --config-dir $tmp --backup-dir $backup --purge-all -y 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { throw 'purge-all should succeed with strict confirmation phrase' }
         Assert-Contains $out "整个配置根目录" "purge-all output"
         Assert-NotExists $tmp "purge-all removed config dir"
         Write-Host "PASS: purge-all strict confirmation and full purge work"

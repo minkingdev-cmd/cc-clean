@@ -61,20 +61,20 @@ The executable is typically located at:
 ### Download from Release
 
 - Releases page: <https://github.com/minkingdev-cmd/cc-clean/releases>
-- Current version: <https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.2>
+- Current version: <https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.3>
 - Checksum file: `SHA256SUMS.txt`
 
 Future tag releases are built and uploaded automatically by GitHub Actions.
 
 The current source tree also covers more uninstall leftovers, including local installs, the native installer, shell config injections, Linux mimeapps associations, Claude in Chrome Native Host, IDE plugin directories, global npm installation leftovers, and the Linux deep-link desktop entry.
 
-`v0.1.2` currently includes:
+`v0.1.3` currently includes:
 
-- `cc-clean-v0.1.2-linux-x86_64.tar.gz`
-- `cc-clean-v0.1.2-linux-x86_64.zip`
-- `cc-clean-v0.1.2-macos-aarch64.tar.gz`
-- `cc-clean-v0.1.2-macos-aarch64.zip`
-- `cc-clean-v0.1.2-windows-x86_64.zip`
+- `cc-clean-v0.1.3-linux-x86_64.tar.gz`
+- `cc-clean-v0.1.3-linux-x86_64.zip`
+- `cc-clean-v0.1.3-macos-aarch64.tar.gz`
+- `cc-clean-v0.1.3-macos-aarch64.zip`
+- `cc-clean-v0.1.3-windows-x86_64.zip`
 - `SHA256SUMS.txt`
 
 ## Usage examples
@@ -160,7 +160,7 @@ ctest -L dangerous -V
 - [Changelog](./CHANGELOG.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Security policy](./SECURITY.md)
-- [Release notes](./docs/releases/v0.1.2.md)
+- [Release notes](./docs/releases/v0.1.3.md)
 
 ## License
 

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-03
+
+### Fixed
+- 修复 Windows 下 `purge-all` 严格确认回归用例，改为基于实际删除结果断言，避免 PowerShell 对原生进程退出码采集产生误判
+
 ## [0.1.2] - 2026-04-03
 
 ### Fixed

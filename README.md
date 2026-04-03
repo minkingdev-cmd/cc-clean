@@ -61,20 +61,20 @@ cmake --build build
 ### 从 Release 下载
 
 - Release 页面：<https://github.com/minkingdev-cmd/cc-clean/releases>
-- 当前版本：<https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.2>
+- 当前版本：<https://github.com/minkingdev-cmd/cc-clean/releases/tag/v0.1.3>
 - 校验文件：`SHA256SUMS.txt`
 
 未来的 tag 发布会由 GitHub Actions 自动构建并上传对应平台资产。
 
 当前源码已覆盖更多卸载残留，包括本地安装目录、native installer、shell 配置注入、Linux mimeapps 关联、Claude in Chrome Native Host、IDE 插件目录、全局 npm 安装残留与 Linux deep-link desktop entry。
 
-当前 `v0.1.2` 将提供：
+当前 `v0.1.3` 将提供：
 
-- `cc-clean-v0.1.2-linux-x86_64.tar.gz`
-- `cc-clean-v0.1.2-linux-x86_64.zip`
-- `cc-clean-v0.1.2-macos-aarch64.tar.gz`
-- `cc-clean-v0.1.2-macos-aarch64.zip`
-- `cc-clean-v0.1.2-windows-x86_64.zip`
+- `cc-clean-v0.1.3-linux-x86_64.tar.gz`
+- `cc-clean-v0.1.3-linux-x86_64.zip`
+- `cc-clean-v0.1.3-macos-aarch64.tar.gz`
+- `cc-clean-v0.1.3-macos-aarch64.zip`
+- `cc-clean-v0.1.3-windows-x86_64.zip`
 - `SHA256SUMS.txt`
 
 ## 使用示例
@@ -159,7 +159,7 @@ ctest -L dangerous -V
 - [变更记录](./CHANGELOG.md)
 - [贡献指南](./CONTRIBUTING.md)
 - [安全策略](./SECURITY.md)
-- [发布说明](./docs/releases/v0.1.2.md)
+- [发布说明](./docs/releases/v0.1.3.md)
 
 ## 许可证
 
