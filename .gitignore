@@ -1,0 +1,14 @@
+build-cc-clean/
+node_modules/
+dist/
+.idea/
+Testing/
+*.user
+*.swp
+*.log
+
+__pycache__/
+*.pyc
+
+__pycache__/
+*.pyc
